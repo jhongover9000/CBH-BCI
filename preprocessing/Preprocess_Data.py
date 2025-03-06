@@ -1,14 +1,25 @@
-# Preprocess Script
-# Desc: Preprocesses EEG data per trial using MNE (bandpass filtering & CAR), then saves it.
-#
-# Joseph Hong
+'''
+DATA PREPROCESSING AND LABELING
+
+Description: Specifically coded for .mat files, where data is divided between MI and
+Rest at the midway point. Splits and labels data for binary classification. Hardcoded 
+naming for dataset (Sub A).
+
+Joseph Hong
+'''
 # ==================================================================================================
+# ==================================================================================================
+# IMPORTS
 import scipy.io
 import numpy as np
 import os
 import re
 from glob import glob
 import mne
+
+# ==================================================================================================
+# ==================================================================================================
+# DIRECTORIES & VARIABLES
 
 # Define Data Directory
 ref_dir = "./reference/"
@@ -39,6 +50,10 @@ channel_names = [ch[0] for ch in channels_data['channels'].flatten()]  # Extract
 
 # Define Sampling Frequency (Adjust if known)
 sfreq = 100  # Update if dataset uses a different rate
+
+# ==================================================================================================
+# ==================================================================================================
+# PREPROCESS/PROCESS DATA
 
 # Iterate Over Each Subject's File
 for file in mat_files:

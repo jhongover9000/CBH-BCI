@@ -1,11 +1,15 @@
+'''
+K-FOLD CLASSIFICATION PIPELINE
 
-# ATC PIPELINE
-# Desc: Classifciation pipeline using ATCNet for index finger MI dataset.
-#
-# Joseph Hong
+Description: Classifciation pipeline using a selection of models for pre-existing dataset. Still in
+process of being made dynamic, there may be some hardcoded parts.
+Uses K-Fold cross validation, the number of splits is a variable that can be edited.
+
+Joseph Hong
+'''
 # ==================================================================================================
 # ==================================================================================================
-# Label Subjects
+# IMPORTS
 import numpy as np
 from models import atc, BFN
 import keras
@@ -35,6 +39,10 @@ from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
 import matplotlib.pyplot as plt
 from datetime import datetime
+
+# ==================================================================================================
+# ==================================================================================================
+# VARIABLES
 
 # Check for GPU
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -119,15 +127,13 @@ def plot_training_history(history):
 
 # ==================================================================================================
 # ==================================================================================================
-
+# EXECUTION
 print("Starting")
 
 # Assume X (EEG data) and y (labels) are already prepared
 # X.shape: (n_samples, n_channels, n_times), y.shape: (n_samples,)
 skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
 samples, chans = X.shape[2], X.shape[1]
-
-
 
 # Initialize lists to track metrics for each fold
 accuracy_per_fold = []
@@ -207,6 +213,7 @@ print(f"Average Loss: {np.mean(loss_per_fold):.4f}")
 
 # ==================================================================================================
 # ==================================================================================================
+# EVALUATION 
 
 # Test evaluation
 test_loss, test_accuracy = model.evaluate(X_test, y_test)

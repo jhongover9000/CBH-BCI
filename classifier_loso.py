@@ -1,6 +1,15 @@
-# Training Pipeline with Leave-One-Subject-Out Cross-Validation
+'''
+LOSO CLASSIFICATION PIPELINE
+
+Description: Classifciation pipeline using a selection of models for pre-existing dataset. Still in
+process of being made dynamic, there may be some hardcoded parts.
+Uses Leave-One-Subject-Out cross validation, the number of splits is a variable that can be edited.
+
+Joseph Hong
+'''
 # ==================================================================================================
-# Import necessary libraries
+# ==================================================================================================
+# IMPORTS
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1' 
 import numpy as np
@@ -35,6 +44,9 @@ from tensorflow.keras import backend as K
 from models.EEGModels import EEGNet,DeepConvNet,ShallowConvNet
 from models.models import ATCNet_
 
+# ==================================================================================================
+# ==================================================================================================
+# VARIABLES
 
 # Check for GPU
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -64,7 +76,8 @@ print(f"Data loaded. X shape: {X.shape}, y shape: {y.shape}, Subject IDs: {subje
 timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
 
 # ==================================================================================================
-# Define Helper Functions
+# ==================================================================================================
+# FUNCTIONS
 
 # Fit Transform (for Training Data)
 def scaler_fit_transform(X_train, X_test):
@@ -111,6 +124,9 @@ def plot_training_history(history, timestamp):
     plt.show()
 
 # ==================================================================================================
+# ==================================================================================================
+# EXECUTION
+
 # LOSO Cross-Validation
 n_splits = len(np.unique(subject_ids))  # Number of subjects
 epochs = 70
@@ -283,7 +299,9 @@ for subject in np.unique(subject_ids):
     gc.collect()  # Run garbage collection to clean up any residual memory usage
 
 # ==================================================================================================
-# Model Evaluation and Visualization
+# ==================================================================================================
+# EVALUATION
+
 print(f"\nAverage Accuracy Across Subjects: {np.mean(accuracy_per_fold) * 100:.2f}%")
 print(f"Average Loss Across Subjects: {np.mean(loss_per_fold):.4f}")
 print(f"Average ATC Across Subjects: {np.mean(scores_atc) * 100:.2f}%")
