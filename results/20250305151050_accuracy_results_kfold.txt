@@ -1,0 +1,12 @@
+Splits: 5
+Epochs: 75
+Batch Size: 32
+Validation Split: 0.2
+Per-Fold Accuracies:
+Fold 1: 98.49%
+Fold 2: 98.41%
+Fold 3: 97.05%
+Fold 4: 97.05%
+Fold 5: 97.35%
+
+Average Accuracy: 97.67%

@@ -1,0 +1,13 @@
+Epochs: 70
+Batch Size: 16
+Per-Subject Accuracies:
+Subject SubA: 71.43%
+Subject SubB: 57.56%
+Subject SubC: 60.08%
+Subject SubE: 75.88%
+Subject SubF: 49.52%
+Subject SubG: 82.16%
+Subject SubH: 64.67%
+Subject SubI: 76.52%
+
+Average Accuracy Across Subjects: 67.23%
