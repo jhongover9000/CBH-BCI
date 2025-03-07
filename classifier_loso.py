@@ -65,12 +65,22 @@ data_version = 'v4'
 data_filename = f"subject_data_{data_version}.npz"  # Specify your desired output file
 weight_filename = f"{saved_weights_dir}20250305151050_best_model_fold_1.weights.h5"
 
+
 # Load Data
 data = np.load(data_dir + data_filename)
 X = data['X']
 y = data['y']
 subject_ids = data['subject_ids']
 print(f"Data loaded. X shape: {X.shape}, y shape: {y.shape}, Subject IDs: {subject_ids.shape}")
+
+# LOSO Cross-Validation
+n_splits = len(np.unique(subject_ids))  # Number of subjects
+epochs = 70
+batch_size = 16
+learning_rate = 0.00005
+weight_decay = 0.01
+samples, chans = X.shape[2], X.shape[1]
+nb_classes = 2
 
 # Set timestamp for identifier
 timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
@@ -126,15 +136,6 @@ def plot_training_history(history, timestamp):
 # ==================================================================================================
 # ==================================================================================================
 # EXECUTION
-
-# LOSO Cross-Validation
-n_splits = len(np.unique(subject_ids))  # Number of subjects
-epochs = 70
-batch_size = 16
-learning_rate = 0.00005
-weight_decay = 0.01
-samples, chans = X.shape[2], X.shape[1]
-nb_classes = 2
 
 # Initialize an accumulator for the confusion matrix
 conf_matrix_accum = np.zeros((nb_classes, nb_classes))
