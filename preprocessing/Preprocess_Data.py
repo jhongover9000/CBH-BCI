@@ -31,10 +31,17 @@ data_version = 'v4'
 filename = f"subject_data_{data_version}.npz"  # Specify your desired output file
 
 # BPF Variables
-f_list = [0.1, 49]
+f_list = [1, 49]
 
+# 5-Finger Classification Electrodes
+# 'Fp1' 'Fp2' 'F3' 'F4' 'C3' 'C4' 'P3' 'P4' 'O1' 'O2' 'A1' 'A2' 'F7' 'F8' 'T3' 'T4' 'T5' 'T6' 'Fz' 'Cz' 'Pz' 'X5'
+
+# Remove Specific Channels, Retain Others
 drop_chan = False
-chan2drop = ["T7", "T8", 'FT7', 'FT8']
+# chan2drop = ["T7", "T8", 'FT7', 'FT8']
+chan2drop = ['A1', 'A2', 'X5']
+
+# Use Specific Channels Only
 select_chan = True
 chan2use = ['F3','F4','C3','Cz','C4','P3','P4']
 

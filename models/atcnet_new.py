@@ -8,7 +8,7 @@ from tensorflow.keras.layers import (
 from tensorflow.keras.regularizers import L2
 from models.models import Conv_block_, attention_block, TCN_block_
 
-def ATCNet_(n_classes, in_chans=22, in_samples=1125, n_windows=5, attention='mha', 
+def ATCNet_(n_classes, in_chans=22, in_samples=1125, n_windows=3, attention='mha', 
            eegn_F1=16, eegn_D=2, eegn_kernelSize=64, eegn_poolSize=7, eegn_dropout=0.3, 
            tcn_depth=2, tcn_kernelSize=4, tcn_filters=32, tcn_dropout=0.3, 
            tcn_activation='elu', fuse='average'):

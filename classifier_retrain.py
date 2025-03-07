@@ -1,99 +1,175 @@
+# ==================================================================================================
+# IMPORTS
+import os
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.models import load_model
-from Models.EEGModels import EEGNet  # Ensure this is your EEGNet implementation
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.callbacks import ReduceLROnPlateau, ModelCheckpoint
+from tensorflow.keras import backend as K
+from datetime import datetime
+import gc
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+import random
 
-# Define your new EEG configuration
-new_channels = 7  # Change this based on your new dataset
-samples = 200  # Keep the same number of time points
-nb_classes = 2  # Keep the same output classes
+from models.atcnet_new import ATCNet_
 
-# Load pre-trained EEGNet model (Make sure you have the right path)
-pretrained_model_path = "pretrained_eegnet.h5"
-pretrained_model = load_model(pretrained_model_path)
+# ==================================================================================================
+# VARIABLES
 
-# Create a new EEGNet model with the updated channel count
-new_model = EEGNet(nb_classes, new_channels, samples)
+# Set Seed for Robustness Testing
+SEED = 2993871  # Change this value to test robustness
+tf.keras.utils.set_random_seed(SEED)
+np.random.seed(SEED)
+random.seed(SEED)
 
-# Load weights while skipping mismatched layers
-for layer in pretrained_model.layers:
+# Number of channels in the original model (pre-trained)
+original_channels = 22
+# Number of channels in the new dataset
+new_channels = 7
+
+# Directories
+data_dir = './data/'
+ref_weights_dir = "./reference_weights/"
+saved_weights_dir = "./saved_weights/"
+results_dir = "./results/"
+
+# Data Configurations
+data_version = 'v4'
+data_filename = f"subject_data_{data_version}.npz"
+
+# Load New Data
+data = np.load(data_dir + data_filename)
+X_new = data['X']  # Shape (trials, new_channels, timepoints)
+y_new = data['y']
+subject_ids = data['subject_ids']
+print(f"New Data loaded. X shape: {X_new.shape}, y shape: {y_new.shape}, Subject IDs: {subject_ids.shape}")
+
+# Training Configurations
+epochs = 50  # Fine-tuning for fewer epochs
+batch_size = 16
+learning_rate = 0.00001  # Lower LR for fine-tuning
+nb_classes = 2
+
+# Timestamp
+timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+
+# ==================================================================================================
+# LOAD PRE-TRAINED MODEL AND ADJUST INPUT SIZE
+
+# Load the original ATCNet model (22 channels)
+original_model = ATCNet_(nb_classes, original_channels, X_new.shape[2])
+
+# Load pre-trained weights
+pretrained_weights_path = f"{ref_weights_dir}ATCNet.weights.h5"
+try:
+    original_model.load_weights(pretrained_weights_path)
+    print("✅ Loaded pre-trained weights from:", pretrained_weights_path)
+except:
+    print("⚠ No pre-trained weights found. Training from scratch.")
+
+# Create a new model with the adjusted number of channels (7)
+new_model = ATCNet_(nb_classes, new_channels, X_new.shape[2])
+
+# Map layer names from old model to new model
+layer_mapping = {orig_layer.name: new_layer.name for orig_layer, new_layer in zip(original_model.layers, new_model.layers)}
+
+for orig_layer_name, new_layer_name in layer_mapping.items():
     try:
-        new_model.get_layer(layer.name).set_weights(layer.get_weights())
-        print(f"Loaded weights for layer: {layer.name}")
-    except ValueError:
-        print(f"Skipping layer: {layer.name} (Shape mismatch)")
+        # Skip input-dependent layers
+        if "conv2d" in orig_layer_name or "depthwise_conv2d" in orig_layer_name:
+            print(f"🚫 Skipping incompatible Conv layer: {orig_layer_name}")
+            continue  
 
-print("Pre-trained weights loaded where applicable.")
+        if "batch_normalization" in orig_layer_name:
+            print(f"⚠ Adapting BatchNorm layer: {orig_layer_name}")
+            orig_weights = original_model.get_layer(orig_layer_name).get_weights()
+            if len(orig_weights) == 4:  # Standard BatchNorm has 4 params
+                gamma, beta, mean, var = orig_weights
+                new_model.get_layer(new_layer_name).set_weights([gamma[:new_channels], beta[:new_channels],
+                                                                 mean[:new_channels], var[:new_channels]])
+            continue  
 
-# Compile the model (ensure same optimizer settings as before)
+        # Transfer all other compatible layers
+        new_model.get_layer(new_layer_name).set_weights(original_model.get_layer(orig_layer_name).get_weights())
+        print(f"✅ Transferred weights for {orig_layer_name} → {new_layer_name}")
+
+    except ValueError as e:
+        print(f"⚠ Skipping {orig_layer_name} due to mismatch: {e}")
+
+print("Weight transfer complete. Now fine-tuning.")
+
+# ==================================================================================================
+# DATA PREPARATION
+
+# Expand dimensions for ATCNet input (batch, 1, channels, time)
+X_new = np.expand_dims(X_new, axis=1)
+
+# Convert labels to categorical
+y_new = to_categorical(y_new, nb_classes)
+
+# ==================================================================================================
+# ADJUST `n_windows` TO MATCH TIME DIMENSION
+
+final_time_dim = X_new.shape[-1]  # Time dimension after input processing
+n_windows = min(final_time_dim, 3)  # Ensure `n_windows` is valid
+print(f"Updated `n_windows`: {n_windows}")
+
+# ==================================================================================================
+# COMPILE AND TRAIN
+
+# Compile Model
 new_model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=0.00005),
+    optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
     loss="categorical_crossentropy",
     metrics=["accuracy"]
 )
 
-# Load your dataset
-data = np.load('./data/subject_data_v2.npz')
-X = data['X']
-y = data['y']
-subject_ids = data['subject_ids']
+# Callbacks
+callbacks = [
+    ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0.00001),
+    ModelCheckpoint(f"{saved_weights_dir}{timestamp}_fine_tuned_ATCNet.keras", monitor='val_loss', save_best_only=True)
+]
 
-# Ensure data is standardized
-from sklearn.preprocessing import StandardScaler
+# Train the model on the new data
+history = new_model.fit(
+    X_new, y_new,
+    batch_size=batch_size,
+    epochs=epochs,
+    validation_split=0.2,  # Use 20% of new data for validation
+    callbacks=callbacks,
+    verbose=1
+)
 
-def standardize_data(X_train, X_test):
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train.reshape(X_train.shape[0], -1)).reshape(X_train.shape)
-    X_test = scaler.transform(X_test.reshape(X_test.shape[0], -1)).reshape(X_test.shape)
-    return X_train, X_test
+# Save the final fine-tuned model
+new_model.save_weights(f"{saved_weights_dir}{timestamp}_final_finetuned_ATCNet.weights.h5")
+print("✅ Fine-tuned model saved.")
 
-# LOSO Cross-Validation
-accuracy_per_subject = []
+# ==================================================================================================
+# SAVE RESULTS
 
-for subject in np.unique(subject_ids):
-    print(f"Training on Subject {subject} (Leaving them out)...")
+# Plot Training History
+plt.figure(figsize=(12, 4))
+plt.subplot(1, 2, 1)
+plt.plot(history.history['loss'], label='Train Loss')
+plt.plot(history.history['val_loss'], label='Val Loss')
+plt.title('Loss over Epochs')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
 
-    # LOSO Data Split
-    test_index = np.where(subject_ids == subject)[0]
-    train_index = np.where(subject_ids != subject)[0]
+plt.subplot(1, 2, 2)
+plt.plot(history.history['accuracy'], label='Train Accuracy')
+plt.plot(history.history['val_accuracy'], label='Val Accuracy')
+plt.title('Accuracy over Epochs')
+plt.xlabel('Epochs')
+plt.ylabel('Accuracy')
+plt.legend()
 
-    X_train, X_test = X[train_index], X[test_index]
-    y_train, y_test = y[train_index], y[test_index]
+plt.tight_layout()
+fig_file = f"{results_dir}{timestamp}_FineTuning_History.png"
+plt.savefig(fig_file)
+plt.show()
 
-    # Standardize
-    X_train, X_test = standardize_data(X_train, X_test)
-
-    # Expand dimensions for EEGNet
-    X_train = np.expand_dims(X_train, 1)
-    X_test = np.expand_dims(X_test, 1)
-    X_train = tf.transpose(X_train, perm=[0, 2, 3, 1])  # Swap axes for EEGNet
-    X_test = tf.transpose(X_test, perm=[0, 2, 3, 1])
-
-    # Convert labels to categorical
-    y_train = tf.keras.utils.to_categorical(y_train, nb_classes)
-    y_test = tf.keras.utils.to_categorical(y_test, nb_classes)
-
-    # Train the model
-    history = new_model.fit(
-        X_train, y_train,
-        validation_data=(X_test, y_test),
-        batch_size=16,
-        epochs=20,  # Fine-tune for fewer epochs
-        verbose=1
-    )
-
-    # Evaluate on test data
-    scores = new_model.evaluate(X_test, y_test, verbose=1)
-    accuracy_per_subject.append(scores[1])
-    print(f"Subject {subject} - Accuracy: {scores[1] * 100:.2f}%")
-
-# Save subject-wise accuracies
-with open("subject_accuracy_results.txt", "w") as f:
-    f.write("Per-Subject Accuracies:\n")
-    for subject, acc in zip(np.unique(subject_ids), accuracy_per_subject):
-        f.write(f"Subject {subject}: {acc * 100:.2f}%\n")
-    
-    avg_accuracy = np.mean(accuracy_per_subject) * 100
-    f.write(f"\nAverage Accuracy Across Subjects: {avg_accuracy:.2f}%\n")
-
-print("Training complete. Subject accuracies saved to 'subject_accuracy_results.txt'.")
+print(f"✅ Fine-tuning complete. Training history saved as {fig_file}.")
