@@ -78,7 +78,7 @@ misclassification_stats_all = defaultdict(int)
 misclassified_trials_per_subject = []
 
 print("Starting Training...")
-'''
+
 # ==================================================================================================
 # TRAINING LOOP (LOSO)
 for subject in np.unique(subject_ids):
@@ -171,36 +171,9 @@ for subject in np.unique(subject_ids):
     del model
     K.clear_session()
     gc.collect()
-'''
-# ==================================================================================================
-# FINAL TRAINING ON ALL DATA
-
-print("Training Final Model on All Subjects...")
-
-# Initialize Final Model
-final_model = ATCNet_(nb_classes, X.shape[1], X.shape[2]) if model_choice == 'ATCNet' else EEGNet(nb_classes, X.shape[1], X.shape[2])
-
-# Fix input shape
-X_all = np.expand_dims(X, axis=1)  # (batch, 1, channels, time)
-y_all = to_categorical(y, nb_classes)
-
-# Compile Final Model
-final_model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
-    loss="categorical_crossentropy",
-    metrics=["accuracy"]
-)
-
-# Train Final Model
-final_model.fit(X_all, y_all, batch_size=batch_size, epochs=epochs, verbose=1)
-
-# Save Final Model
-final_model.save_weights(f"{saved_weights_dir}{timestamp}_ATC_final_model.weights.h5")
-print("Final Model Trained and Saved.")
-
 # ==================================================================================================
 # SAVE RESULTS
-'''
+
 # Save accuracy results
 results_filename = f"{results_dir}{timestamp}_accuracy_results_LOSO.txt"
 with open(results_filename, "w") as f:
@@ -228,4 +201,31 @@ if shap_on:
         pickle.dump(y_pred_all, fp)
 
 print(f"Results saved to {results_filename}")
+
+'''
+# ==================================================================================================
+# FINAL TRAINING ON ALL DATA
+
+print("Training Final Model on All Subjects...")
+
+# Initialize Final Model
+final_model = ATCNet_(nb_classes, X.shape[1], X.shape[2]) if model_choice == 'ATCNet' else EEGNet(nb_classes, X.shape[1], X.shape[2])
+
+# Fix input shape
+X_all = np.expand_dims(X, axis=1)  # (batch, 1, channels, time)
+y_all = to_categorical(y, nb_classes)
+
+# Compile Final Model
+final_model.compile(
+    optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+    loss="categorical_crossentropy",
+    metrics=["accuracy"]
+)
+
+# Train Final Model
+final_model.fit(X_all, y_all, batch_size=batch_size, epochs=epochs, verbose=1)
+
+# Save Final Model
+final_model.save_weights(f"{saved_weights_dir}{timestamp}_ATC_final_model.weights.h5")
+print("Final Model Trained and Saved.")
 '''
