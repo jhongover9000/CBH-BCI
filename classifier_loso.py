@@ -61,7 +61,7 @@ saved_weights_dir = "./saved_weights/"
 results_dir = "./results/"
 shap_dir = "./shap/"
 
-data_version = 'v4'
+data_version = 'v5'
 data_filename = f"subject_data_{data_version}.npz"  # Specify your desired output file
 weight_filename = f"{saved_weights_dir}20250305151050_best_model_fold_1.weights.h5"
 

@@ -19,10 +19,9 @@ saved_weights_dir = "./saved_weights/"
 results_dir = "./results/"
 shap_dir = "./shap/"
 
-data_version = 'v4'
+data_version = 'v5'
 data_filename = f"subject_data_{data_version}.npz"  # Specify your desired output file
 weight_filename = f"{saved_weights_dir}20250305151050_best_model_fold_1.weights.h5"
-
 
 # Load pre-trained EEGNet model
 pretrained_model_path = "pretrained_eegnet.h5"
@@ -93,7 +92,6 @@ nb_classes = 2
 batch_size = 16  
 epochs = 20  # LOSO fine-tuning epochs
 final_epochs = 50  # Final full-dataset model training
-
 
 # Load EEG dataset
 data = np.load('./data/subject_data_v2.npz')

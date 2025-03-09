@@ -1,9 +1,11 @@
 '''
 DATA PREPROCESSING AND LABELING
 
-Description: Specifically coded for .mat files, where data is divided between MI and
-Rest at the midway point. Splits and labels data for binary classification. Hardcoded 
-naming for dataset (Sub A).
+Description:
+- Processes .mat files where data is divided between MI and Rest at the midway point.
+- Splits data between Rest and MI.
+- Applies bandpass filtering, referencing, and channel selection.
+- Saves the processed data in .npz format for later use in classification.
 
 Joseph Hong
 '''
@@ -31,7 +33,7 @@ data_version = 'v4'
 filename = f"subject_data_{data_version}.npz"  # Specify your desired output file
 
 # BPF Variables
-f_list = [1, 49]
+f_list = [2, 49]
 
 # 5-Finger Classification Electrodes
 # 'Fp1' 'Fp2' 'F3' 'F4' 'C3' 'C4' 'P3' 'P4' 'O1' 'O2' 'A1' 'A2' 'F7' 'F8' 'T3' 'T4' 'T5' 'T6' 'Fz' 'Cz' 'Pz' 'X5'
@@ -56,7 +58,7 @@ channels_data = scipy.io.loadmat(os.path.join(ref_dir,"channels.mat"))
 channel_names = [ch[0] for ch in channels_data['channels'].flatten()]  # Extract names properly
 
 # Define Sampling Frequency (Adjust if known)
-sfreq = 100  # Update if dataset uses a different rate
+sfreq = 200  # Update if dataset uses a different rate
 
 # ==================================================================================================
 # ==================================================================================================

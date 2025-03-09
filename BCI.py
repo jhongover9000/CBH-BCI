@@ -99,14 +99,14 @@ process_ip = "0.0.0.0"
 # Initialize BCI System Type
 def initialize_bci(is_virtual = False, is_LSL = False):
     if(is_virtual):
-        from Receivers import Virtual_Receiver
-        return Virtual_Receiver.Emulator() 
+        from receivers import virtual_receiver
+        return virtual_receiver.Emulator() 
     elif (is_LSL):
-        from Receivers import LSL_Receiver
-        return LSL_Receiver.LSLReceiver()
+        from receivers import lsl_receiver
+        return lsl_receiver.LSLReceiver()
     else:
-        from Receivers import Livestream_Receiver
-        return Livestream_Receiver.LivestreamReceiver()
+        from receivers import livestream_receiver
+        return livestream_receiver.LivestreamReceiver()
 
 # Print time and message
 def logTime(message):

@@ -32,7 +32,7 @@ random.seed(SEED)
 model_choice = 'ATCNet'  # Change to 'EEGNet' if needed
 
 # SHAP Analysis Toggle
-shap_on = True  # Set to False if you don't need SHAP analysis
+shap_on = False  # Set to False if you don't need SHAP analysis
 
 # GPU Check
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -46,8 +46,12 @@ results_dir = "./results/"
 shap_dir = "./shap/"
 
 # Data Configurations
-data_version = 'v5'
-data_filename = f"subject_data_{data_version}.npz"
+data_version = 'v1'
+mit_data = True
+if(mit_data):
+    data_filename = f"mit_subject_data_{data_version}.npz"
+else:
+    data_filename = f"subject_data_{data_version}.npz"
 
 # Load Data
 data = np.load(data_dir + data_filename)
@@ -183,14 +187,6 @@ with open(results_filename, "w") as f:
     avg_accuracy = np.mean(accuracy_per_subject) * 100
     f.write(f"\nAverage Accuracy Across Subjects: {avg_accuracy:.2f}%\n")
 
-# Save confusion matrix
-plt.figure(figsize=(8, 6))
-sns.heatmap(conf_matrix_accum, annot=True, fmt="d", cmap="Blues")
-plt.title("Confusion Matrix")
-plt.ylabel("True Label")
-plt.xlabel("Predicted Label")
-plt.savefig(f"{results_dir}{timestamp}_confusion_matrix.png")
-
 # Save SHAP values
 if shap_on:
     with open(f"{shap_dir}{timestamp}_shap_values.pkl", "wb") as fp:
@@ -199,6 +195,14 @@ if shap_on:
         pickle.dump(y_test_all, fp)
     with open(f"{shap_dir}{timestamp}_y_pred_all", "wb") as fp:  # Pickling
         pickle.dump(y_pred_all, fp)
+
+# Save confusion matrix
+plt.figure(figsize=(8, 6))
+sns.heatmap(conf_matrix_accum, annot=True, fmt=".2f", cmap="Blues")
+plt.title("Confusion Matrix")
+plt.ylabel("True Label")
+plt.xlabel("Predicted Label")
+plt.savefig(f"{results_dir}{timestamp}_confusion_matrix.png")
 
 print(f"Results saved to {results_filename}")
 
