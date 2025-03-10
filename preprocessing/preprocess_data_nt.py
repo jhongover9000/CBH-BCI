@@ -64,7 +64,6 @@ sfreq = 200  # Update if dataset uses a different rate
 # ==================================================================================================
 # ==================================================================================================
 # PREPROCESS/PROCESS DATA
-'''
 
 # Iterate Over Each Subject's File
 for file in mat_files:
@@ -105,7 +104,7 @@ for file in mat_files:
             print("Channels after selecting:", raw.info['ch_names'])
 
         # Apply Bandpass Filter (7–30 Hz)
-        raw.filter(l_freq=f_list[0], h_freq=f_list[1], fir_design='firwin')
+        raw.filter(l_freq=f_list[0], h_freq=f_list[1], method='fir', fir_design='firwin', phase='zero')
 
         # Apply Common Average Referencing (CAR)
         raw.set_eeg_reference(ref_channels="average")
@@ -144,5 +143,3 @@ print("Final Subject Labels Shape:", subject_final.shape)  # (total_trials,)
 np.savez(os.path.join(save_dir, filename), X=X_final, y=y_final, subject_ids=subject_final)
 
 print(f"Data saved to {os.path.join(save_dir, filename)}.")
-
-'''

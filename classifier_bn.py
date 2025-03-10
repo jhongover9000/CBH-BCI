@@ -4,7 +4,7 @@ import os
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.utils import to_categorical
-from tensorflow.keras.callbacks import ReduceLROnPlateau, ModelCheckpoint
+from tensorflow.keras.callbacks import ReduceLROnPlateau, ModelCheckpoint, EarlyStopping
 from tensorflow.keras import backend as K
 from datetime import datetime
 import gc
@@ -33,7 +33,7 @@ random.seed(SEED)
 model_choice = 'ATCNet'  # Change to 'EEGNet' if needed
 
 # SHAP Analysis Toggle
-shap_on = True  # Set to False if you don't need SHAP analysis
+shap_on = False  # Set to False if you don't need SHAP analysis
 
 # FIX TENSORFLOW MEMORY GROWTH
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -52,7 +52,7 @@ results_dir = "./results/"
 shap_dir = "./shap/"
 
 # Data Configurations
-data_version = 'v1'
+data_version = 'v4'
 mit_data = True
 if(mit_data):
     data_filename = f"mit_subject_data_{data_version}.npz"
@@ -65,6 +65,10 @@ X = data['X']
 y = data['y']
 subject_ids = data['subject_ids']
 print(f"Data loaded. X shape: {X.shape}, y shape: {y.shape}, Subject IDs: {subject_ids.shape}")
+
+for subj in np.unique(subject_ids):
+    subj_idx = np.where(subject_ids == subj)
+    X[subj_idx] = (X[subj_idx] - np.mean(X[subj_idx])) / np.std(X[subj_idx])
 
 # LOSO Cross-Validation
 n_splits = len(np.unique(subject_ids))
@@ -112,15 +116,22 @@ for subject in np.unique(subject_ids):
     model = ATCNet_(nb_classes, X.shape[1], X.shape[2]) if model_choice == 'ATCNet' else EEGNet(nb_classes, X.shape[1], X.shape[2])
 
     # Load Pre-trained Weights
-    try:
-        model.load_weights(ref_weights_dir + f"{model_choice}_weights.h5", by_name=True, skip_mismatch=True)
-        print(f"Loaded pre-trained weights for {model_choice}")
-    except:
-        print("No pre-trained weights found. Training from scratch.")
+    # try:
+    #     model.load_weights(ref_weights_dir + f"{model_choice}_weights.h5", by_name=True, skip_mismatch=True)
+    #     print(f"Loaded pre-trained weights for {model_choice}")
+    # except:
+    #     print("No pre-trained weights found. Training from scratch.")
 
     # LOSO Data Split
     test_index = np.where(subject_ids == subject)[0]
     train_index = np.where(subject_ids != subject)[0]
+
+    train_trials = set(map(tuple, X[train_index].reshape(X[train_index].shape[0], -1)))
+    test_trials = set(map(tuple, X[test_index].reshape(X[test_index].shape[0], -1)))
+
+    overlapping_trials = train_trials.intersection(test_trials)
+    print(f"Number of overlapping trials: {len(overlapping_trials)}")
+
 
     # Fix input shape for ATCNet
     X_train = np.expand_dims(X[train_index], axis=1)  # (batch, 1, channels, time)
@@ -138,9 +149,9 @@ for subject in np.unique(subject_ids):
 
     # Callbacks
     callbacks = [
+        EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True),
         ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0.00005),
-        ModelCheckpoint(f"{saved_weights_dir}{timestamp}_best_model_subject_{subject}.weights.h5",
-                        monitor='val_loss', save_weights_only = True)
+        ModelCheckpoint(f"{saved_weights_dir}{timestamp}_best_model_subject_{subject}.weights.h5", monitor='val_loss', save_weights_only = True)
     ]
 
     print_memory_usage()

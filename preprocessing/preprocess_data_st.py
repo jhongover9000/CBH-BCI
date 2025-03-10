@@ -26,7 +26,7 @@ save_dir = "./data/"
 mat_file_path = f"{epoch_folder}STvsRest.mat"  # Update with actual path
 
 # Data Version
-data_version = 'v1'
+data_version = 'v3'
 save_filename = f"mit_subject_data_{data_version}.npz"  # Specify your desired output file
 
 # Bandpass Filter Range (Hz)
@@ -105,26 +105,7 @@ for subject_id in range(num_subjects):
             raw = raw.pick_channels(chan2use)
 
         # Apply bandpass filter
-        raw.filter(l_freq=f_low, h_freq=f_high, fir_design='firwin')
-
-        # Store processed data
-        X_list.append(raw.get_data())
-        y_list.append(0)  # Rest Label
-        subject_list.append(subject_id)
-
-        for trial_idx in range(mi_trials):
-            trial = mi_data[:, :, trial_idx]  # (channels, timepoints)
-
-        # Convert to MNE Raw object
-        info = mne.create_info(ch_names=[f"Ch{i}" for i in range(trial.shape[0])], sfreq=sfreq, ch_types="eeg")
-        raw = mne.io.RawArray(trial, info)
-
-        # Select relevant channels
-        if select_chan:
-            raw = raw.pick_channels(chan2use)
-
-        # Apply bandpass filter
-        raw.filter(l_freq=f_low, h_freq=f_high, fir_design='firwin')
+        raw.filter(l_freq=2, h_freq=49, method='fir', fir_design='firwin', phase='minimum')
 
         # Downsample (if needed)
         if(sfreq != new_freq):
