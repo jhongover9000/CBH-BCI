@@ -15,6 +15,7 @@ import pandas as pd
 import pickle
 from collections import defaultdict
 import random
+import psutil
 
 from models.EEGModels import EEGNet
 from models.atcnet_new import ATCNet_
@@ -34,9 +35,14 @@ model_choice = 'ATCNet'  # Change to 'EEGNet' if needed
 # SHAP Analysis Toggle
 shap_on = False  # Set to False if you don't need SHAP analysis
 
-# GPU Check
+# FIX TENSORFLOW MEMORY GROWTH
 gpus = tf.config.experimental.list_physical_devices('GPU')
-print("GPUs available:", gpus)
+if gpus:
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)  # Prevent TensorFlow from pre-allocating GPU memory
+    except RuntimeError as e:
+        print("GPU Memory Growth Error:", e)
 
 # Directories
 data_dir = './data/'
@@ -62,7 +68,7 @@ print(f"Data loaded. X shape: {X.shape}, y shape: {y.shape}, Subject IDs: {subje
 
 # LOSO Cross-Validation
 n_splits = len(np.unique(subject_ids))
-epochs = 50
+epochs = 20
 batch_size = 16
 learning_rate = 0.00005
 nb_classes = 2
@@ -81,12 +87,26 @@ misclassified_trials_all = defaultdict(list)
 misclassification_stats_all = defaultdict(int)
 misclassified_trials_per_subject = []
 
+
+def print_memory_usage():
+    """Prints current memory usage for debugging."""
+    process = psutil.Process(os.getpid())
+    mem_usage = process.memory_info().rss / (1024 ** 3)  # Convert to GB
+    print(f"🛑 Memory Usage: {mem_usage:.2f} GB")
+
+
+def clear_tf_memory():
+    """Clears TensorFlow's GPU memory."""
+    K.clear_session()
+    gc.collect()
+
 print("Starting Training...")
 
 # ==================================================================================================
 # TRAINING LOOP (LOSO)
 for subject in np.unique(subject_ids):
     print(f"Processing Subject {subject}...")
+    print_memory_usage()
 
     # Initialize Model
     model = ATCNet_(nb_classes, X.shape[1], X.shape[2]) if model_choice == 'ATCNet' else EEGNet(nb_classes, X.shape[1], X.shape[2])
@@ -119,12 +139,16 @@ for subject in np.unique(subject_ids):
     # Callbacks
     callbacks = [
         ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0.00005),
-        ModelCheckpoint(f"{saved_weights_dir}{timestamp}_best_model_subject_{subject}.keras",
-                        monitor='val_loss')
+        ModelCheckpoint(f"{saved_weights_dir}{timestamp}_best_model_subject_{subject}.weights.h5",
+                        monitor='val_loss', save_weights_only = True)
     ]
+
+    print_memory_usage()
 
     # Train Model
     model.fit(X_train, y_train, validation_data=(X_test, y_test), batch_size=batch_size, epochs=epochs, callbacks=callbacks, verbose=1)
+
+    print_memory_usage()
 
     # Evaluate Model
     scores = model.evaluate(X_test, y_test, verbose=1)
@@ -135,6 +159,10 @@ for subject in np.unique(subject_ids):
     y_pred = model.predict(X_test)
     y_pred_classes = np.argmax(y_pred, axis=1)
     y_test_classes = np.argmax(y_test, axis=1)
+
+    # Append Accuracies    
+    y_test_all.append(y_test.argmax(axis=-1))
+    y_pred_all.append(y_pred)
 
     # SHAP Analysis
     if shap_on:
@@ -172,8 +200,9 @@ for subject in np.unique(subject_ids):
     print(f"Subject {subject} - Accuracy: {scores[1] * 100:.2f}%")
 
     # Clear memory
-    del model
-    K.clear_session()
+    del model, X_train, y_train, X_test, y_test
+    print_memory_usage()
+    clear_tf_memory()
     gc.collect()
 # ==================================================================================================
 # SAVE RESULTS
