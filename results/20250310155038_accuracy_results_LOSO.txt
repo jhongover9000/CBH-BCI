@@ -1,0 +1,11 @@
+Per-Subject Accuracies:
+Subject SubA: 95.48%
+Subject SubB: 90.25%
+Subject SubC: 89.78%
+Subject SubE: 93.75%
+Subject SubF: 93.83%
+Subject SubG: 94.59%
+Subject SubH: 81.14%
+Subject SubI: 96.67%
+
+Average Accuracy Across Subjects: 91.94%

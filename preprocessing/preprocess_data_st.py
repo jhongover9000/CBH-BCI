@@ -47,7 +47,7 @@ channel_names = [ch[0] for ch in channels_data['channels'].flatten()]  # Extract
 
 # Define Sampling Frequency (adjust if needed)
 sfreq = 1000
-new_freq = 250
+new_freq = 200
 
 original_timepoints = 2000
 original_freq = sfreq  # Hz
@@ -97,18 +97,18 @@ for subject_id in range(num_subjects):
         trial = rest_data[:, :, trial_idx]  # (channels, timepoints)
 
         # Convert to MNE Raw object
-        info = mne.create_info(ch_names=[f"Ch{i}" for i in range(trial.shape[0])], sfreq=sfreq, ch_types="eeg", verbose = False)
+        info = mne.create_info(ch_names=[f"Ch{i}" for i in range(trial.shape[0])], sfreq=sfreq, ch_types="eeg")
         raw = mne.io.RawArray(trial, info)
 
         # Select relevant channels
         if select_chan:
-            raw = raw.pick_channels(chan2use, verbose = False)
+            raw = raw.pick_channels(chan2use)
 
         # Apply bandpass filter
-        raw.filter(l_freq=f_low, h_freq=f_high, fir_design='firwin', verbose = False)
+        raw.filter(l_freq=f_low, h_freq=f_high, fir_design='firwin')
 
         # Apply common average referencing (CAR)
-        raw.set_eeg_reference(ref_channels="average", verbose = False)
+        raw.set_eeg_reference(ref_channels="average")
 
         # Store processed data
         X_list.append(raw.get_data())
@@ -127,14 +127,14 @@ for subject_id in range(num_subjects):
             raw = raw.pick_channels(chan2use)
 
         # Apply bandpass filter
-        raw.filter(l_freq=f_low, h_freq=f_high, fir_design='firwin', verbose = True)
+        raw.filter(l_freq=f_low, h_freq=f_high, fir_design='firwin')
 
         # Downsample (if needed)
         if(sfreq != new_freq):
-            raw.resample(new_freq, verbose = False)
+            raw.resample(new_freq)
 
         # Apply common average referencing (CAR)
-        raw.set_eeg_reference(ref_channels="average", verbose = False)
+        # raw.set_eeg_reference(ref_channels="average", verbose = False)
 
         # Store processed data
         X_list.append(raw.get_data())

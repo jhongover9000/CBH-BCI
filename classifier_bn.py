@@ -24,7 +24,7 @@ from models.atcnet_new import ATCNet_
 # VARIABLES
 
 # Set Seed for Robustness Testing
-SEED = 128  # Change this value to test robustness
+SEED = 42  # Change this value to test robustness
 tf.keras.utils.set_random_seed(SEED)
 np.random.seed(SEED)
 random.seed(SEED)
@@ -33,7 +33,7 @@ random.seed(SEED)
 model_choice = 'ATCNet'  # Change to 'EEGNet' if needed
 
 # SHAP Analysis Toggle
-shap_on = False  # Set to False if you don't need SHAP analysis
+shap_on = True  # Set to False if you don't need SHAP analysis
 
 # FIX TENSORFLOW MEMORY GROWTH
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -68,9 +68,9 @@ print(f"Data loaded. X shape: {X.shape}, y shape: {y.shape}, Subject IDs: {subje
 
 # LOSO Cross-Validation
 n_splits = len(np.unique(subject_ids))
-epochs = 20
+epochs = 70
 batch_size = 16
-learning_rate = 0.00005
+learning_rate = 0.0001
 nb_classes = 2
 
 # Timestamp
@@ -101,7 +101,7 @@ def clear_tf_memory():
     gc.collect()
 
 print("Starting Training...")
-
+'''
 # ==================================================================================================
 # TRAINING LOOP (LOSO)
 for subject in np.unique(subject_ids):
@@ -261,4 +261,3 @@ final_model.fit(X_all, y_all, batch_size=batch_size, epochs=epochs, verbose=1)
 # Save Final Model
 final_model.save_weights(f"{saved_weights_dir}{timestamp}_ATC_final_model.weights.h5")
 print("Final Model Trained and Saved.")
-'''
