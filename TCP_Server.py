@@ -2,59 +2,41 @@ import socket
 import threading
 from pynput import keyboard  # No admin access needed!
 
-HOST = "127.0.0.1"
-PORT = 5005
-REQUIRED_COUNT = 5  # Number of "1" messages needed before sending TAP
+class TCPServer:
+    def __init__(self, host="127.0.0.1", port=5005):
+        self.host = host
+        self.port = port
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.client_conn = None
+        self.running = True  # Control flag for stopping threads
 
-def handle_client(conn):
-    """Handles messages from Unity and counts occurrences."""
-    last_message = None
-    count = 0
+    def initialize_connection(self):
+        """Initialize and start the TCP server."""
+        print(f"TCP Server Starting...")
+        self.server_socket.bind((self.host, self.port))
+        self.server_socket.listen(1)
+        print(f"TCP Server Listening on {self.host}:{self.port}")
 
-    while True:
-        try:
+        self.client_conn, addr = self.server_socket.accept()
+        print(f"Connected by {addr}")
 
-            key = input("Press ENTER to send TAP: ")
-            if key == "":
-                send_tap_signal(conn)
-                print("TAP signal sent!")
+    def send_tap_signal(self):
+        """Send 'TAP' to Unity client."""
+        if self.client_conn:
+            try:
+                print("Sending TAP signal!")
+                self.client_conn.sendall("TAP".encode())
+            except Exception as e:
+                print("Error sending TAP:", e)
 
-        except Exception as e:
-            print("Error:", e)
-            break
+    def use_classification(self, prediction):
+        if prediction == 1:
+            self.send_tap_signal()
 
-    conn.close()
-    print("Connection closed.")
-
-def send_tap_signal(conn):
-    """Send 'TAP' to Unity."""
-    try:
-        print("Sending TAP signal!")
-        conn.sendall("TAP".encode())
-    except Exception as e:
-        print("Error sending TAP:", e)
-
-def listen_for_spacebar(conn):
-    """Runs a non-blocking spacebar listener in the background."""
-    def on_press(key):
-        if key == keyboard.Key.space:
-            print("Spacebar pressed! Sending TAP signal.")
-            send_tap_signal(conn)
-
-    listener = keyboard.Listener(on_press=on_press)
-    listener.start()  # Starts in a separate thread (non-blocking)
-
-# Start TCP Server
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
-    server_socket.bind((HOST, PORT))
-    server_socket.listen(1)
-    print("TCP Server Listening...")
-
-    conn, addr = server_socket.accept()
-    print(f"Connected by {addr}")
-
-    # Start listening for spacebar (NON-BLOCKING)
-    # threading.Thread(target=listen_for_spacebar, args=(conn,), daemon=True).start()
-
-    # Handle client messages
-    handle_client(conn)
+    def disconnect(self):
+        """Safely closes the connection and shuts down the server."""
+        self.running = False
+        if self.client_conn:
+            self.client_conn.close()
+        self.server_socket.close()
+        print("Server shutdown.")

@@ -94,6 +94,6 @@ def ATCNet_(n_classes, in_chans=22, in_samples=1125, n_windows=3, attention='mha
     elif fuse == 'concat':
         sw_concat = Dense(n_classes, kernel_regularizer=L2(dense_weightDecay))(sw_concat)
 
-    out = Activation('linear' if from_logits else 'softmax', name='output')(sw_concat)
+    out = Activation('linear' if from_logits else 'sigmoid', name='output')(sw_concat)
 
     return Model(inputs=input_1, outputs=out)

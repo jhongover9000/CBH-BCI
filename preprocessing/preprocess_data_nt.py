@@ -56,6 +56,7 @@ X_list, y_list, subject_list = [], [], []
 # Load Channel Names
 channels_data = scipy.io.loadmat(os.path.join(ref_dir,"channels.mat"))
 channel_names = [ch[0] for ch in channels_data['channels'].flatten()]  # Extract names properly
+print(channel_names)
 
 # Define Sampling Frequency (Adjust if known)
 sfreq = 200  # Update if dataset uses a different rate
@@ -63,6 +64,7 @@ sfreq = 200  # Update if dataset uses a different rate
 # ==================================================================================================
 # ==================================================================================================
 # PREPROCESS/PROCESS DATA
+'''
 
 # Iterate Over Each Subject's File
 for file in mat_files:
@@ -142,3 +144,5 @@ print("Final Subject Labels Shape:", subject_final.shape)  # (total_trials,)
 np.savez(os.path.join(save_dir, filename), X=X_final, y=y_final, subject_ids=subject_final)
 
 print(f"Data saved to {os.path.join(save_dir, filename)}.")
+
+'''
