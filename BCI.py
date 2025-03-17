@@ -142,6 +142,7 @@ if __name__ == "__main__":
     print("===================================")
     print("Parsed Command-Line Arguments:")
     print(f"  Virtual Mode:        {is_virtual}")
+    print(f"  LSL Mode:        {is_lsl}")
     print(f"  Enable Preprocessing: {args.preprocess}")
     print(f"  Verbose Mode:        {is_verbose}")
     print(f"  Sampling Frequency:  {new_freq if new_freq else 'Original'}")
