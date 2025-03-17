@@ -1,3 +1,12 @@
+'''
+CLASSIFIER (W MODEL BATCH NORMALIZATION)
+
+Description: Classification training for a model with batch normalization.
+
+Joseph Hong
+
+'''
+
 # ==================================================================================================
 # IMPORTS
 import os

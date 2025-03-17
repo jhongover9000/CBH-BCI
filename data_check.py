@@ -1,3 +1,12 @@
+'''
+DATA CHECKER
+
+Description: Check data for redundancies, shape mismatches, labeling errors.
+
+Joseph Hong
+
+'''
+
 import numpy as np
 
 # Directories

@@ -1,3 +1,19 @@
+"""
+LSL RECEIVER
+
+Description:
+- Processes .mat files where each row represents a different subject.
+- Each subject has Rest and MI trials in separate columns.
+- Applies bandpass filtering, referencing, and channel selection.
+- Saves the processed data in .npz format for later use in classification.
+
+Joseph Hong
+
+"""
+# =============================================================
+# =============================================================
+# INCLUDES
+
 from pylsl import StreamInlet, resolve_byprop
 import numpy as np
 import mne
@@ -5,10 +21,12 @@ from datetime import datetime
 
 from collections import Counter
 
+#==========================================================================================
+#==========================================================================================
+# HELPER FUNCTIONS
+
+# Check for duplicate channel names and make them unique
 def make_channel_names_unique(channel_names):
-    """
-    Ensures all channel names are unique by appending numbers to duplicates.
-    """
     counts = Counter(channel_names)
     seen = {}
     unique_names = []
@@ -22,6 +40,9 @@ def make_channel_names_unique(channel_names):
     
     return unique_names
 
+#==========================================================================================
+#==========================================================================================
+# CLASS DEFINITION
 
 class LSLReceiver:
     def __init__(self, stream_type="EEG"):
@@ -41,6 +62,7 @@ class LSLReceiver:
         print(f"Connected to EEG stream: {streams[0].name()}")
         self.initialize_connection()
 
+    # Initialize LSL connection
     def initialize_connection(self):
         # Retrieve LSL stream info
         info = self.inlet.info()
@@ -56,16 +78,17 @@ class LSLReceiver:
             channel_names.append(ch_list.child_value("label"))
             ch_list = ch_list.next_sibling()
 
-        # Ensure unique channel names
+        # Ensure unique channel names (needed for making MNE array)
         self.channel_names = make_channel_names_unique(channel_names)
 
         # Identify EEG channels (exclude accelerometer or other non-EEG sensors)
         eeg_channels = [ch for ch in self.channel_names if not ch.startswith("acc")]
+        # Note: if accel info can be used later on, then send elsewhere?
 
         # Store non-EEG channels separately
         self.non_eeg_channels = [ch for ch in self.channel_names if ch.startswith("acc")]
 
-        # Filter channel count to only EEG channels
+        # Filter channel count to only EEG channels (for inference)
         self.channel_count = len(eeg_channels)
 
         # Create MNE info object with only EEG channels
@@ -88,13 +111,8 @@ class LSLReceiver:
 
         return self.sampling_frequency, self.channel_names, self.channel_count, self.data
 
+    # Get data from LSL stream if there is anything
     def get_data(self):
-        """
-        Retrieves a sample from the LSL stream and separates EEG from non-EEG channels.
-        
-        Returns:
-            eeg_data (ndarray): The EEG data array (channels, 1 timepoint).
-        """
         sample, timestamp = self.inlet.pull_sample()
         
         if sample:
@@ -112,8 +130,7 @@ class LSLReceiver:
     
         return None  # No data received
     
-
-
+    # Use for classification goes here, depending on what you're using
     def use_classification(self, prediction):
         print(prediction,  datetime.now())
         # Use classification

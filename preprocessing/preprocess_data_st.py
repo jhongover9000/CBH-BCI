@@ -7,6 +7,8 @@ Description:
 - Applies bandpass filtering, referencing, and channel selection.
 - Saves the processed data in .npz format for later use in classification.
 
+Joseph Hong
+
 """
 
 # ==================================================================================================
