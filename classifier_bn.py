@@ -24,7 +24,7 @@ from models.atcnet_new import ATCNet_
 # VARIABLES
 
 # Set Seed for Robustness Testing
-SEED = 42  # Change this value to test robustness
+SEED = 128  # Change this value to test robustness
 tf.keras.utils.set_random_seed(SEED)
 np.random.seed(SEED)
 random.seed(SEED)
@@ -105,7 +105,7 @@ def clear_tf_memory():
     gc.collect()
 
 print("Starting Training...")
-
+'''
 # ==================================================================================================
 # TRAINING LOOP (LOSO)
 for subject in np.unique(subject_ids):
@@ -272,4 +272,3 @@ final_model.fit(X_all, y_all, batch_size=batch_size, epochs=epochs, verbose=1)
 # Save Final Model
 final_model.save_weights(f"{saved_weights_dir}{timestamp}_ATC_final_model.weights.h5")
 print("Final Model Trained and Saved.")
-'''

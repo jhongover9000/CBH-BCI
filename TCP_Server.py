@@ -1,6 +1,5 @@
 import socket
 import threading
-from pynput import keyboard  # No admin access needed!
 
 class TCPServer:
     def __init__(self, host="127.0.0.1", port=5005):

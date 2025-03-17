@@ -93,11 +93,6 @@ for file in mat_files:
         info = mne.create_info(ch_names=channel_names, sfreq=sfreq, ch_types="eeg")
         raw = mne.io.RawArray(trial_data, info)
 
-        # Drop additional channels to fit BFN
-        if(drop_chan):
-            raw = raw.drop_channels(chan2drop)
-            print("Channels after dropping:", raw.info['ch_names'])
-
         # Pick specific channels: C3, O1, O2 (if needed)
         if(select_chan):
             raw = raw.pick_channels(chan2use)
@@ -107,7 +102,12 @@ for file in mat_files:
         raw.filter(l_freq=f_list[0], h_freq=f_list[1], method='fir', fir_design='firwin', phase='zero')
 
         # Apply Common Average Referencing (CAR)
-        raw.set_eeg_reference(ref_channels="average")
+        raw.set_eeg_reference(ref_channels=["A1","A2"])
+
+        # Drop additional channels to fit BFN
+        if(drop_chan):
+            raw = raw.drop_channels(chan2drop)
+            print("Channels after dropping:", raw.info['ch_names'])
 
         # Get preprocessed data as NumPy array
         processed_data = raw.get_data()  # Shape: (channels, timepoints)

@@ -26,7 +26,7 @@ save_dir = "./data/"
 mat_file_path = f"{epoch_folder}STvsRest.mat"  # Update with actual path
 
 # Data Version
-data_version = 'v3'
+data_version = 'v4'
 save_filename = f"mit_subject_data_{data_version}.npz"  # Specify your desired output file
 
 # Bandpass Filter Range (Hz)
@@ -92,6 +92,9 @@ for subject_id in range(num_subjects):
     rest_trials = rest_data.shape[2]
     mi_trials = mi_data.shape[2]
 
+    print(rest_trials)
+    print(mi_trials)
+
     # Process each trial
     for trial_idx in range(rest_trials):
         trial = rest_data[:, :, trial_idx]  # (channels, timepoints)
@@ -105,13 +108,38 @@ for subject_id in range(num_subjects):
             raw = raw.pick_channels(chan2use)
 
         # Apply bandpass filter
-        raw.filter(l_freq=2, h_freq=49, method='fir', fir_design='firwin', phase='minimum')
+        # raw.filter(l_freq=2, h_freq=49, method='fir', fir_design='firwin', phase='zero')
 
         # Downsample (if needed)
         if(sfreq != new_freq):
             raw.resample(new_freq)
 
-        # Store processed data
+        # Store processed rest data
+        X_list.append(raw.get_data())
+        y_list.append(0)  # Rest Label
+        subject_list.append(subject_id)
+
+    
+    # MI Trials
+    for trial_idx in range(mi_trials):
+        trial = mi_data[:, :, trial_idx]  # (channels, timepoints)
+
+        # Convert to MNE Raw object
+        info = mne.create_info(ch_names=[f"Ch{i}" for i in range(trial.shape[0])], sfreq=sfreq, ch_types="eeg")
+        raw = mne.io.RawArray(trial, info)
+
+        # Select relevant channels
+        if select_chan:
+            raw = raw.pick_channels(chan2use)
+
+        # Apply bandpass filter
+        # raw.filter(l_freq=2, h_freq=49, method='fir', fir_design='firwin', phase='zero')
+
+        # Downsample (if needed)
+        if(sfreq != new_freq):
+            raw.resample(new_freq)
+
+        # Store processed MI data
         X_list.append(raw.get_data())
         y_list.append(1)  # MI Label
         subject_list.append(subject_id)

@@ -47,8 +47,8 @@ num_channels_nt = 19
 num_timepoints_nt = 200
 
 # Ports (Edit!)
-com_port = "COM"
-com_baudrate = 1125000 #??
+com_port = "/dev/ttyUSB0"
+com_baudrate = 115200
 tcp_ip = "127.0.0.1"
 tcp_port = 5005
 
@@ -118,7 +118,7 @@ X, y, subject_ids = data['X'], data['y'], data['subject_ids']
 X_all = np.expand_dims(X, axis=1)  # (batch, 1, channels, time)
 
 # Initialize Connection
-# bci.initialize_connection()
+bci.initialize_connection()
 
 # GUI for user input
 def select_label(label):

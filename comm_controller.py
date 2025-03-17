@@ -2,7 +2,7 @@ import serial
 import time
 
 class COMPortSignalSender:
-    def __init__(self, port='COM3', baudrate=9600, timeout=1):
+    def __init__(self, port='/dev/ttyUSB0', baudrate=9600, timeout=1):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
@@ -20,7 +20,7 @@ class COMPortSignalSender:
         """Send a signal (command) to the COM port."""
         if self.serial_conn and self.serial_conn.is_open:
             self.serial_conn.write(command.encode())
-            print(f"Sent command: {command}")
+            # print(f"Sent command: {command}")
         else:
             print("COM port is not open.")
 

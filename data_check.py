@@ -8,7 +8,7 @@ results_dir = "./results/"
 shap_dir = "./shap/"
 
 # Load the dataset (update path if necessary)
-data_path = f"{data_dir}/subject_data_v7.npz"
+data_path = f"{data_dir}/mit_subject_data_v3.npz"
 data = np.load(data_path)
 
 X = data['X']
