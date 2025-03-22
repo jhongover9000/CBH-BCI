@@ -270,21 +270,23 @@ class EEGMarkerGUI:
         self.log_box.config(state="disabled")
         self.log_box.see("end")
 
+
     def save_data(self):
         eeg_array = np.array(self.eeg_data).T
         times_array = np.array(self.timestamps)
-        marker_labels = [m[0] for m in self.markers]
+        marker_labels = [str(m[0]) for m in self.markers]  # Ensure strings
         marker_abs_times = [m[1] for m in self.markers]
         marker_rel_times = [m[2] for m in self.markers]
 
         info = mne.create_info(ch_names=[self.eeg_channels[i] for i in self.eeg_indices],
-                               sfreq=self.sfreq, ch_types='eeg')
+                            sfreq=self.sfreq, ch_types='eeg')
         raw = mne.io.RawArray(eeg_array, info)
-        raw._times = times_array - times_array[0]
 
-        annotations = mne.Annotations(onset=marker_rel_times,
-                                      duration=[0] * len(marker_rel_times),
-                                      description=marker_labels)
+        # Convert relative times (ms) to seconds
+        onsets_sec = np.array(marker_rel_times) / 1000
+        annotations = mne.Annotations(onset=onsets_sec,
+                                    duration=[0] * len(onsets_sec),
+                                    description=marker_labels)
         raw.set_annotations(annotations)
 
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -304,6 +306,22 @@ class EEGMarkerGUI:
             })
 
         self.log(f"Data saved to {filename}")
+        print("Saved annotations:", set(marker_labels))
+
+        # === Verification Step ===
+        if filename.endswith(".fif"):
+            try:
+                raw_check = mne.io.read_raw_fif(filename, preload=False)
+                saved_labels = set(raw_check.annotations.description)
+                print("Verified annotations in saved file:", saved_labels)
+
+                expected_labels = set(marker_labels)
+                if expected_labels == saved_labels:
+                    print("✅ All marker labels saved correctly.")
+                else:
+                    print("⚠️ Mismatch in saved labels! Expected:", expected_labels, "Got:", saved_labels)
+            except Exception as e:
+                print("Error verifying saved annotations:", e)
 
 if __name__ == "__main__":
     root = tk.Tk()
