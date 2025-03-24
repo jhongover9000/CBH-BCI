@@ -24,9 +24,9 @@ for fname in os.listdir(data_dir):
         temp.pick_channels(common_ch_names)
         temp.set_montage(montage)
 
-        # if 'Cz' in temp.ch_names:
-        #     temp.info['bads'] = ['Cz']
-        #     temp.interpolate_bads(reset_bads=True)
+        if 'Cz' in temp.ch_names:
+            temp.info['bads'] = ['Cz']
+            temp.interpolate_bads(reset_bads=True)
 
         # Apply Bandpass Filter (0.5 - 40 Hz)
         temp.filter(0.5, 40.0, fir_design='firwin')
@@ -51,6 +51,7 @@ raw.plot()
 
 from autoreject import AutoReject
 
+'''
 # Create epochs to apply autoreject
 epochs = mne.make_fixed_length_epochs(raw, duration=2.0, preload=True)
 
@@ -71,11 +72,12 @@ info = epochs_clean.info.copy()  # Keep same channel info
 raw_clean = mne.io.RawArray(data_reshaped, info)
 
 # Set original montage again
-montage = mne.channels.make_standard_montage('standard_1020')
-raw_clean.set_montage(montage)
+# montage = mne.channels.make_standard_montage('standard_1020')
+# raw_clean.set_montage(montage)
 
 # Now raw_clean is your cleaned Raw object!
 raw_clean.plot(n_channels=32, title='Cleaned Raw (from epochs)')
+'''
 
 # ---------- 3. Extract annotations ----------
 annotations = raw.annotations
@@ -84,18 +86,18 @@ assert imagery_indices, "No 'Imagery' events found in annotations."
 first_imagery_time = annotations.onset[imagery_indices[0]]
 
 # ---------- 4. Morlet Wavelet Power (Alpha & Beta bands) ----------
-sfreq = raw_clean.info['sfreq']
+sfreq = raw.info['sfreq']
 n_cycles = 5
 
 frequencies_alpha = np.arange(8, 14, 1)
 frequencies_beta = np.arange(13, 31, 2)
 
 power_alpha = mne.time_frequency.tfr_array_morlet(
-    raw_clean.get_data()[np.newaxis, :], sfreq=sfreq, freqs=frequencies_alpha, n_cycles=n_cycles, output='power'
+    raw.get_data()[np.newaxis, :], sfreq=sfreq, freqs=frequencies_alpha, n_cycles=n_cycles, output='power'
 )[0]  # shape: (n_channels, n_freqs, n_times)
 
 power_beta = mne.time_frequency.tfr_array_morlet(
-    raw_clean.get_data()[np.newaxis, :], sfreq=sfreq, freqs=frequencies_beta, n_cycles=n_cycles, output='power'
+    raw.get_data()[np.newaxis, :], sfreq=sfreq, freqs=frequencies_beta, n_cycles=n_cycles, output='power'
 )[0]
 
 mean_power_alpha = power_alpha.mean(axis=1)
