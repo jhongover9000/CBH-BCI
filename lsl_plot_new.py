@@ -86,13 +86,6 @@ power_alpha = mne.time_frequency.tfr_morlet(epochs_clean, freqs=frequencies_alph
 power_beta  = mne.time_frequency.tfr_morlet(epochs_clean, freqs=frequencies_beta,
                                             n_cycles=n_cycles, return_itc=False, average=False)
 
-# Grand average across epochs (for topographic plotting)
-power_alpha_avg = power_alpha.average()
-power_beta_avg  = power_beta.average()
-
-mean_power_alpha_db = 10 * np.log10(power_alpha_avg + 1e-10)
-mean_power_beta_db = 10 * np.log10(power_beta_avg + 1e-10)
-
 # ===============================================================
 # 5. Baseline Correction (Using a Pre-Event Window)
 # ===============================================================
@@ -101,6 +94,13 @@ baseline = (-2.0, -1.0)
 
 power_alpha.apply_baseline(baseline=baseline, mode='logratio')
 power_beta.apply_baseline(baseline=baseline, mode='logratio')
+
+# Grand average across epochs (for topographic plotting)
+power_alpha_avg = power_alpha.average()
+power_beta_avg  = power_beta.average()
+
+mean_power_alpha_db = 10 * np.log10(power_alpha_avg + 1e-10)
+mean_power_beta_db = 10 * np.log10(power_beta_avg + 1e-10)
 
 # 6. Topoplot
 # ===============================================================
@@ -112,7 +112,6 @@ mne.viz.plot_topomap(mean_power_beta_db, raw.info, axes=axes[1], show=False, cma
 axes[1].set_title("Beta Avg (dB, BL-removed)")
 plt.suptitle("Grand Avg Topos (0–1s post-imagery)", fontsize=14)
 plt.show()
-
 
 # ===============================================================
 # 7. Compute and Plot
