@@ -17,20 +17,20 @@ class UDPServer:
         print(f"UDP Server Listening on {self.host}:{self.port}")
         
         # Wait for the first incoming packet to capture the client's address.
-        data, addr = self.server_socket.recvfrom(1024)
-        print(f"Initial packet received from {addr}")
-        self.client_addr = addr
+        # data, addr = self.server_socket.recvfrom(1024)
+        # print(f"Initial packet received from {addr}")
+        # self.client_addr = addr
 
     def send_tap_signal(self):
-        """Send 'TAP' to the Unity client."""
-        if self.client_addr:
-            try:
-                print("Sending TAP signal!")
-                self.server_socket.sendto("TAP".encode(), self.client_addr)
-            except Exception as e:
-                print("Error sending TAP:", e)
-        else:
-            print("No client address available. Cannot send TAP signal.")
+        """Broadcast 'TAP' to all clients on the local network (UDP broadcast)."""
+        try:
+            print("Broadcasting TAP signal!")
+            # Enable broadcasting mode on the socket
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            # Broadcast to all clients on port 5005
+            self.server_socket.sendto("TAP".encode(), ('255.255.255.255', self.port))
+        except Exception as e:
+            print("Error sending TAP:", e)
 
     def use_classification(self, prediction):
         if prediction == 1:

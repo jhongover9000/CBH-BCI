@@ -21,6 +21,8 @@ from datetime import datetime
 
 from collections import Counter
 
+from broadcasting import UDP_Server
+
 #==========================================================================================
 #==========================================================================================
 # HELPER FUNCTIONS
@@ -45,7 +47,7 @@ def make_channel_names_unique(channel_names):
 # CLASS DEFINITION
 
 class LSLReceiver:
-    def __init__(self, stream_type="EEG"):
+    def __init__(self, stream_type="EEG", broadcast = False):
         # Check for EEG LSL Stream
         print("Looking for an EEG stream...")
         streams = resolve_byprop('type', stream_type)
@@ -58,9 +60,17 @@ class LSLReceiver:
         self.sampling_frequency = 0
         self.channel_count = 0
         self.data = None
+        self.broadcasting = broadcast
+        self.server = None
 
         print(f"Connected to EEG stream: {streams[0].name()}")
         self.initialize_connection()
+
+        # If broadcasting classification (for further applications), set up UDP server
+        if broadcast:
+            self.server = UDP_Server.UDPServer()
+            self.server.initialize_connection()
+
 
     # Initialize LSL connection
     def initialize_connection(self):
@@ -137,6 +147,8 @@ class LSLReceiver:
         if prediction == 0:
             print("Rest")
         elif prediction == 1:
+            if self.broadcasting:
+                self.server.send_tap_signal()
             print("MI")
         else:
             print("??")

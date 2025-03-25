@@ -102,8 +102,8 @@ elif args.natural:
     # Assign EEG Dataset
     dataset_path = f"{data_dir}{DATASET_NATURAL}"
 
-    from TCP_Server import TCPServer
-    bci = TCPServer(tcp_ip, tcp_port)
+    from broadcasting import TCP_Server
+    bci = TCP_Server.TCPServer(tcp_ip, tcp_port)
 
 else:
 
