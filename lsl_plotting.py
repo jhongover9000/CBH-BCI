@@ -29,10 +29,12 @@ for fname in os.listdir(data_dir):
             temp.interpolate_bads(reset_bads=True)
 
         # Apply Bandpass Filter (0.5 - 40 Hz)
-        temp.filter(0.5, 40.0, fir_design='firwin')
+        temp.filter(1, 40.0, fir_design='firwin')
 
         # Apply Common Average Referencing (CAR)
         temp.set_eeg_reference('average', projection=False)
+
+        
 
         annotations = temp.annotations
         imagery_onsets = [onset for onset, desc in zip(annotations.onset, annotations.description) if 'imagery' in desc.lower()]
@@ -46,6 +48,11 @@ print(raw_list)
 # Load and combine
 raw = raw_list[0]
 raw.append(raw_list[1:])
+
+raw.plot()
+
+ica = mne.preprocessing.ICA(n_components=3, max_iter="auto", random_state=97)
+ica.fit(raw)
 
 raw.plot()
 
@@ -106,12 +113,12 @@ mean_power_beta = power_beta.mean(axis=1)
 mean_power_alpha_db = 10 * np.log10(mean_power_alpha + 1e-10)
 mean_power_beta_db = 10 * np.log10(mean_power_beta + 1e-10)
 
-# ---------- 5. Baseline Correction (-2s to -1.8s relative to each imagery onset) ----------
+# ---------- 5. Baseline Correction ----------
 # Parameters
-baseline_start = -1.0  # seconds
-baseline_end = -0.5
-post_start = -1.0
-post_end = 2.0
+baseline_start = -0.5  # seconds
+baseline_end = 0.0
+post_start = 0.0
+post_end = 1.0
 
 # Collect power for each imagery event
 alpha_event_powers = []
@@ -132,7 +139,7 @@ for idx in imagery_indices:
     if bl_start_sample < 0 or post_end_sample > mean_power_alpha.shape[1]:
         continue
 
-    # Baseline power (dB)
+    # Baseline power (dB) - Results in 7 values (1 per channel)
     bl_alpha = mean_power_alpha[:, bl_start_sample:bl_end_sample].mean(axis=1)
     bl_beta = mean_power_beta[:, bl_start_sample:bl_end_sample].mean(axis=1)
     bl_alpha_db = 10 * np.log10(bl_alpha + 1e-10)
@@ -141,6 +148,8 @@ for idx in imagery_indices:
     # Post-onset power (dB), baseline-corrected
     alpha_post = 10 * np.log10(mean_power_alpha[:, post_start_sample:post_end_sample] + 1e-10)
     beta_post = 10 * np.log10(mean_power_beta[:, post_start_sample:post_end_sample] + 1e-10)
+
+    print(np.shape(alpha_post.mean(axis=1)))
 
     alpha_post_bl = alpha_post.mean(axis=1) - bl_alpha_db
     beta_post_bl = beta_post.mean(axis=1) - bl_beta_db
@@ -163,10 +172,10 @@ plt.suptitle("Grand Avg Topos (0–1s post-imagery)", fontsize=14)
 plt.show()
 
 # Define time bins (100 ms each) from 0 to 1 second post-imagery
-time_bin_ms = 100
+time_bin_ms = 500
 bin_samples = int((time_bin_ms / 1000) * sfreq)
-post_start_offset = 0  # relative to imagery onset
-post_end_offset = int(1.0 * sfreq)
+post_start_offset = int(-5 * sfreq)  # relative to imagery onset
+post_end_offset = int(5 * sfreq)
 time_bins = list(range(post_start_offset, post_end_offset, bin_samples))
 
 # Initialize lists for binned topographies and C3 power over time

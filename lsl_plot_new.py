@@ -25,8 +25,12 @@ for fname in os.listdir(data_dir):
         temp.pick_channels(common_ch_names)
         temp.set_montage(montage)
 
+        if 'Cz' in temp.ch_names:
+            temp.info['bads'] = ['Cz']
+            temp.interpolate_bads(reset_bads=True)
+
         # Preprocessing: bandpass (0.5–40 Hz) and average reference
-        temp.filter(0.5, 40.0, fir_design='firwin')
+        temp.filter(1, 40.0, fir_design='firwin')
         temp.set_eeg_reference('average', projection=False)
 
         # Check for "Imagery" events in annotations
@@ -59,16 +63,21 @@ print(f"Found {len(events)} imagery events.")
 # Define epoch time window (here –5 to 5 s relative to event onset)
 tmin, tmax = -5.0, 5.0
 epochs = mne.Epochs(raw, events, event_id=event_id, tmin=tmin, tmax=tmax,
-                    preload=True, baseline=None)
+                    preload=True, baseline=(-0.5,0))
 print(f"Created {len(epochs)} epochs.")
-epochs.plot(title="Epochs from Imagery Events", show=True)
+# epochs.plot(title="Epochs from Imagery Events", show=True)
 
 # ===============================================================
 # 3. Clean Epochs using AutoReject
 # ===============================================================
-ar = AutoReject()
-epochs_clean = ar.fit_transform(epochs)
-epochs_clean.plot(title="Cleaned Epochs", show=True)
+# ar = AutoReject()
+# epochs_clean = ar.fit_transform(epochs)
+# epochs_clean.plot(title="Cleaned Epochs", show=True)
+
+ica = mne.preprocessing.ICA(n_components=7, max_iter="auto", random_state=97)
+ica.fit(epochs)
+
+epochs_clean = epochs
 
 # ===============================================================
 # 4. Time–Frequency Analysis on Cleaned Epochs
@@ -90,7 +99,7 @@ power_beta  = mne.time_frequency.tfr_morlet(epochs_clean, freqs=frequencies_beta
 # 5. Baseline Correction (Using a Pre-Event Window)
 # ===============================================================
 # Define baseline period (e.g., –2 to –1 s relative to event onset)
-baseline = (-2.0, -1.0)
+baseline = (-0.5, 0.0)
 
 power_alpha.apply_baseline(baseline=baseline, mode='logratio')
 power_beta.apply_baseline(baseline=baseline, mode='logratio')
@@ -99,16 +108,21 @@ power_beta.apply_baseline(baseline=baseline, mode='logratio')
 power_alpha_avg = power_alpha.average()
 power_beta_avg  = power_beta.average()
 
-mean_power_alpha_db = 10 * np.log10(power_alpha_avg + 1e-10)
-mean_power_beta_db = 10 * np.log10(power_beta_avg + 1e-10)
+mean_power_alpha_db = 10 * np.log10(power_alpha_avg.data + 1e-10)
+mean_power_beta_db = 10 * np.log10(power_beta_avg.data + 1e-10)
 
 # 6. Topoplot
 # ===============================================================
+
+topo_data_alpha = mean_power_alpha_db.mean(axis=(1, 2))
+topo_data_beta  = mean_power_beta_db.mean(axis=(1, 2))
+
+
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-mne.viz.plot_topomap(mean_power_alpha_db, raw.info, axes=axes[0], show=False, cmap='viridis', contours=6)
+mne.viz.plot_topomap(topo_data_alpha, raw.info, axes=axes[0], show=False, cmap='viridis', contours=6)
 axes[0].set_title("Alpha Avg (dB, BL-removed)")
 
-mne.viz.plot_topomap(mean_power_beta_db, raw.info, axes=axes[1], show=False, cmap='viridis', contours=6)
+mne.viz.plot_topomap(topo_data_beta, raw.info, axes=axes[1], show=False, cmap='viridis', contours=6)
 axes[1].set_title("Beta Avg (dB, BL-removed)")
 plt.suptitle("Grand Avg Topos (0–1s post-imagery)", fontsize=14)
 plt.show()

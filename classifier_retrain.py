@@ -27,17 +27,25 @@ random.seed(SEED)
 # Number of channels in the original model (pre-trained)
 original_channels = 22
 # Number of channels in the new dataset
-new_channels = 7
+new_channels = 6
 
 # Directories
 data_dir = './data/'
 ref_weights_dir = "./reference_weights/"
 saved_weights_dir = "./saved_weights/"
 results_dir = "./results/"
+shap_dir = "./shap/"
 
 # Data Configurations
-data_version = 'v4'
-data_filename = f"subject_data_{data_version}.npz"
+data_version = 'v2'
+data_type = 'xon'
+if(data_type == 'mit'):
+    data_filename = f"mit_subject_data_{data_version}.npz"
+elif (data_type == 'xon'):
+    data_filename = f"xon_subject_data_{data_version}.npz"
+else:
+    data_filename = f"subject_data_{data_version}.npz"
+
 
 # Load New Data
 data = np.load(data_dir + data_filename)
@@ -47,7 +55,7 @@ subject_ids = data['subject_ids']
 print(f"New Data loaded. X shape: {X_new.shape}, y shape: {y_new.shape}, Subject IDs: {subject_ids.shape}")
 
 # Training Configurations
-epochs = 50  # Fine-tuning for fewer epochs
+epochs = 90  # Fine-tuning for fewer epochs
 batch_size = 16
 learning_rate = 0.00001  # Lower LR for fine-tuning
 nb_classes = 2

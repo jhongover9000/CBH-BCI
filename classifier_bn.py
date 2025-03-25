@@ -61,10 +61,12 @@ results_dir = "./results/"
 shap_dir = "./shap/"
 
 # Data Configurations
-data_version = 'v7'
-mit_data = False
-if(mit_data):
+data_version = 'v1'
+data_type = 'xon'
+if(data_type == 'mit'):
     data_filename = f"mit_subject_data_{data_version}.npz"
+elif (data_type == 'xon'):
+    data_filename = f"xon_subject_data_{data_version}.npz"
 else:
     data_filename = f"subject_data_{data_version}.npz"
 

@@ -248,7 +248,7 @@ class EEGMarkerGUI:
         self.root.after(self.baseline_duration.get() * 1000, self.start_imagery)
 
     def start_imagery(self):
-        self.update_cue("I", "Imagery")
+        self.update_cue("•", "Imagery")
         self.marker_outlet.push_sample(['Imagery'])
         now_lsl = self.eeg_inlet.pull_sample()[1]
         rel_time_ms = (now_lsl - self.start_timestamp_lsl) * 1000
