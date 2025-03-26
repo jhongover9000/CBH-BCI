@@ -4,7 +4,7 @@ import scipy.io
 import matplotlib.pyplot as plt
 
 # === Config ===
-filename = "eeg_recording_20250321_214158"  # Replace with your file name
+filename = "MI_ME_10_2"  # Replace with your file name
 use_mat = False  # Set to True for .mat files
 save_topos = True
 
@@ -49,12 +49,12 @@ raw.plot(duration=5.0, n_channels=len(raw.ch_names), scalings='auto', title='CAR
 # === Extract MI Epochs ===
 events, event_id = mne.events_from_annotations(raw)
 
-if 'Imagery' not in event_id:
+if 'imagery' not in event_id:
     raise ValueError("No 'Imagery' annotations found.")
 
 epoch_tmin = -3
 epoch_tmax = 5  # seconds
-epochs = mne.Epochs(raw, events, event_id=event_id['Imagery'],
+epochs = mne.Epochs(raw, events, event_id=event_id['imagery'],
                     tmin=epoch_tmin, tmax=epoch_tmax,
                     baseline=(-2, -1.8), detrend=1, preload=True, reject=None)
 
