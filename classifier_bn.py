@@ -61,14 +61,17 @@ results_dir = "./results/"
 shap_dir = "./shap/"
 
 # Data Configurations
-data_version = 'v1'
-data_type = 'xon'
+data_version = 'v7'
+data_type = ''
 if(data_type == 'mit'):
     data_filename = f"mit_subject_data_{data_version}.npz"
+    weight_name = "ST"
 elif (data_type == 'xon'):
     data_filename = f"xon_subject_data_{data_version}.npz"
+    weight_name = "XON"
 else:
     data_filename = f"subject_data_{data_version}.npz"
+    weight_name = "NT"
 
 # Load Data
 data = np.load(data_dir + data_filename)
@@ -87,6 +90,7 @@ epochs = 70
 batch_size = 16
 learning_rate = 0.00005
 nb_classes = 2
+weight_decay = 0.01
 
 # Timestamp
 timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
@@ -152,7 +156,7 @@ for subject in np.unique(subject_ids):
 
     # Compile Model
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate, weight_decay=weight_decay),
         loss="categorical_crossentropy",
         metrics=["accuracy"]
     )
@@ -279,5 +283,5 @@ final_model.compile(
 final_model.fit(X_all, y_all, batch_size=batch_size, epochs=epochs, verbose=1)
 
 # Save Final Model
-final_model.save_weights(f"{saved_weights_dir}{timestamp}_ATC_final_model.weights.h5")
+final_model.save_weights(f"{saved_weights_dir}{timestamp}_ATC_{weight_name}.weights.h5")
 print("Final Model Trained and Saved.")

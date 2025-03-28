@@ -19,13 +19,10 @@ from models.atcnet_new import ATCNet_
 # VARIABLES
 
 # Set Seed for Robustness Testing
-SEED = 2993871  # Change this value to test robustness
-tf.keras.utils.set_random_seed(SEED)
-np.random.seed(SEED)
-random.seed(SEED)
+SEED = 42  # Change this value to test robustness
 
 # Number of channels in the original model (pre-trained)
-original_channels = 22
+original_channels = 19
 # Number of channels in the new dataset
 new_channels = 6
 
@@ -35,9 +32,10 @@ ref_weights_dir = "./reference_weights/"
 saved_weights_dir = "./saved_weights/"
 results_dir = "./results/"
 shap_dir = "./shap/"
+ref_weight = 'ATCNet_Full.weights.h5'
 
 # Data Configurations
-data_version = 'v2'
+data_version = 'v3'
 data_type = 'xon'
 if(data_type == 'mit'):
     data_filename = f"mit_subject_data_{data_version}.npz"
@@ -59,6 +57,7 @@ epochs = 90  # Fine-tuning for fewer epochs
 batch_size = 16
 learning_rate = 0.00001  # Lower LR for fine-tuning
 nb_classes = 2
+weight_decay = 0
 
 # Timestamp
 timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
@@ -70,12 +69,13 @@ timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
 original_model = ATCNet_(nb_classes, original_channels, X_new.shape[2])
 
 # Load pre-trained weights
-pretrained_weights_path = f"{ref_weights_dir}ATCNet.weights.h5"
+pretrained_weights_path = f"{ref_weights_dir}{ref_weight}"
 try:
     original_model.load_weights(pretrained_weights_path)
     print("✅ Loaded pre-trained weights from:", pretrained_weights_path)
 except:
-    print("⚠ No pre-trained weights found. Training from scratch.")
+    print(f"⚠ No pre-trained weights found at {ref_weights_dir}{ref_weight}. Training from scratch.")
+    exit()
 
 # Create a new model with the adjusted number of channels (7)
 new_model = ATCNet_(nb_classes, new_channels, X_new.shape[2])
@@ -86,18 +86,18 @@ layer_mapping = {orig_layer.name: new_layer.name for orig_layer, new_layer in zi
 for orig_layer_name, new_layer_name in layer_mapping.items():
     try:
         # Skip input-dependent layers
-        if "conv2d" in orig_layer_name or "depthwise_conv2d" in orig_layer_name:
-            print(f"🚫 Skipping incompatible Conv layer: {orig_layer_name}")
-            continue  
+        # if "conv2d" in orig_layer_name or "depthwise_conv2d" in orig_layer_name:
+        #     print(f"🚫 Skipping incompatible Conv layer: {orig_layer_name}")
+        #     continue  
 
-        if "batch_normalization" in orig_layer_name:
-            print(f"⚠ Adapting BatchNorm layer: {orig_layer_name}")
-            orig_weights = original_model.get_layer(orig_layer_name).get_weights()
-            if len(orig_weights) == 4:  # Standard BatchNorm has 4 params
-                gamma, beta, mean, var = orig_weights
-                new_model.get_layer(new_layer_name).set_weights([gamma[:new_channels], beta[:new_channels],
-                                                                 mean[:new_channels], var[:new_channels]])
-            continue  
+        # if "batch_normalization" in orig_layer_name:
+        #     print(f"⚠ Adapting BatchNorm layer: {orig_layer_name}")
+        #     orig_weights = original_model.get_layer(orig_layer_name).get_weights()
+        #     if len(orig_weights) == 4:  # Standard BatchNorm has 4 params
+        #         gamma, beta, mean, var = orig_weights
+        #         new_model.get_layer(new_layer_name).set_weights([gamma[:new_channels], beta[:new_channels],
+        #                                                          mean[:new_channels], var[:new_channels]])
+        #     continue  
 
         # Transfer all other compatible layers
         new_model.get_layer(new_layer_name).set_weights(original_model.get_layer(orig_layer_name).get_weights())
@@ -129,7 +129,7 @@ print(f"Updated `n_windows`: {n_windows}")
 
 # Compile Model
 new_model.compile(
-    optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+    optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate, weight_decay=weight_decay),
     loss="categorical_crossentropy",
     metrics=["accuracy"]
 )
@@ -145,7 +145,7 @@ history = new_model.fit(
     X_new, y_new,
     batch_size=batch_size,
     epochs=epochs,
-    validation_split=0.2,  # Use 20% of new data for validation
+    # validation_split=0.1, # Use 20% of new data for validation
     callbacks=callbacks,
     verbose=1
 )
@@ -161,7 +161,7 @@ print("✅ Fine-tuned model saved.")
 plt.figure(figsize=(12, 4))
 plt.subplot(1, 2, 1)
 plt.plot(history.history['loss'], label='Train Loss')
-plt.plot(history.history['val_loss'], label='Val Loss')
+# plt.plot(history.history['val_loss'], label='Val Loss')
 plt.title('Loss over Epochs')
 plt.xlabel('Epochs')
 plt.ylabel('Loss')
@@ -169,7 +169,7 @@ plt.legend()
 
 plt.subplot(1, 2, 2)
 plt.plot(history.history['accuracy'], label='Train Accuracy')
-plt.plot(history.history['val_accuracy'], label='Val Accuracy')
+# plt.plot(history.history['val_accuracy'], label='Val Accuracy')
 plt.title('Accuracy over Epochs')
 plt.xlabel('Epochs')
 plt.ylabel('Accuracy')

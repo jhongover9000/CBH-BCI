@@ -7,7 +7,7 @@ from glob import glob
 # PARAMETERS & FILE PATHS
 # -------------------------------
 # Directory containing .fif files
-input_dir = './lsl_data/mi/'
+input_dir = './lsl_data/combined/'
 # Glob pattern to get all .fif files
 fif_files = glob(os.path.join(input_dir, '*.fif'))
 if not fif_files:
@@ -16,8 +16,12 @@ if not fif_files:
 save_dir = "./data/"
 os.makedirs(save_dir, exist_ok=True)
 
+
+marker_name = "imagery"
+
+
 # Data Version
-data_version = 'v2'
+data_version = 'v3'
 filename = f"xon_subject_data_{data_version}.npz"  # Specify your desired output file
 
 output_filename = os.path.join(save_dir, filename)
@@ -27,7 +31,7 @@ l_freq, h_freq = 2, 49  # Bandpass filter limits (Hz)
 
 # Channel configuration
 drop_chan = True
-chan2drop = ['A1', 'A2', 'X5', 'BIP', 'Cz']
+chan2drop = ['A1', 'A2', 'X5', 'BIP']
 select_chan = False
 chan2use = ['F3', 'F4', 'C3', 'Cz', 'C4', 'P3', 'P4']
 
@@ -35,6 +39,8 @@ chan2use = ['F3', 'F4', 'C3', 'Cz', 'C4', 'P3', 'P4']
 X_list = []
 y_list = []
 subject_list = []
+
+montage = mne.channels.make_standard_montage('standard_1020')
 
 # -------------------------------
 # PROCESS EACH .fif FILE
@@ -52,9 +58,28 @@ for fif_file in fif_files:
     # Downsample to target frequency
     raw.resample(target_sfreq)
     
+    raw.notch_filter(50)
+
     # Apply bandpass filter
     raw.filter(l_freq=l_freq, h_freq=h_freq, method='fir', fir_design='firwin')
-    
+
+    # Drop specified channels if they exist
+    available_drop = [ch for ch in chan2drop if ch in raw.ch_names]
+    if drop_chan and available_drop:
+        raw.drop_channels(available_drop)
+        print("Channels after dropping:", raw.info['ch_names'])
+
+    # Retain only channels that are part of the standard montage
+    valid_ch_names = montage.ch_names
+    common_ch_names = list(set(raw.ch_names) & set(valid_ch_names))
+    raw.set_montage(montage)
+
+    # Optionally, mark 'Cz' as bad and interpolate it if present
+    if 'Cz' in raw.ch_names:
+        raw.info['bads'] = ['Cz']
+        # raw.interpolate_bads(reset_bads=True)
+        raw.drop_channels('Cz')
+
     # Set common average reference if reference channels exist
     ref_channels = ["A1", "A2"]
     available_ref = [ch for ch in ref_channels if ch in raw.ch_names]
@@ -62,12 +87,7 @@ for fif_file in fif_files:
         raw.set_eeg_reference(ref_channels=available_ref)
     else:
         raw.set_eeg_reference('average')
-    
-    # Drop specified channels if they exist
-    available_drop = [ch for ch in chan2drop if ch in raw.ch_names]
-    if drop_chan and available_drop:
-        raw.drop_channels(available_drop)
-        print("Channels after dropping:", raw.info['ch_names'])
+        
     
     # Optionally, select a specific subset of channels
     if select_chan:
@@ -83,20 +103,20 @@ for fif_file in fif_files:
         continue
 
     events, event_id = mne.events_from_annotations(raw)
-    if "Imagery" in event_id:
-        imagery_event_code = event_id["Imagery"]
-        imagery_events = events[events[:, 2] == imagery_event_code]
+    if marker_name in event_id:
+        marker_event_code = event_id[marker_name]
+        marker_events = events[events[:, 2] == marker_event_code]
     else:
-        print(f"No 'Imagery' marker found in {fif_file}. Skipping file.")
+        print(f"No {marker_name} marker found in {fif_file}. Skipping file.")
         continue
 
-    if imagery_events.shape[0] == 0:
-        print(f"No Imagery events found in {fif_file}. Skipping file.")
+    if marker_events.shape[0] == 0:
+        print(f"No {marker_name} events found in {fif_file}. Skipping file.")
         continue
 
     # Create epochs around each Imagery event: from -1 to +1 second
-    epochs = mne.Epochs(raw, imagery_events, event_id={"Imagery": imagery_event_code},
-                        tmin=-1, tmax=1, baseline=None, preload=True)
+    epochs = mne.Epochs(raw, marker_events, event_id={"Imagery": marker_event_code},
+                        tmin=-2, tmax=2, baseline=None, preload=True)
     print(f"Number of epochs in {fif_file}: {len(epochs)}")
     
     # -------------------------------
@@ -113,7 +133,7 @@ for fif_file in fif_files:
         # First segment: from -1 to 0 sec → label 0 (pre-imagery)
         pre_imagery = epoch[:, :n_samples]
         # Second segment: from 0 to +1 sec → label 1 (post-imagery)
-        post_imagery = epoch[:, n_samples:2*n_samples]
+        post_imagery = epoch[:, 2*n_samples:3*n_samples]
 
         X_list.append(pre_imagery)
         y_list.append(0)
