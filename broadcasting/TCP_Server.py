@@ -202,6 +202,8 @@ class ServerGUI:
             "spawnInterval": tk.DoubleVar(value=3.0),
         }
 
+        self.slider_values = {}  # Store displayed slider values
+
         slider_row = 0
         for name, var in self.variables.items():
             ttk.Label(self.slider_frame, text=name, style="TLabel").grid(row=slider_row, column=0, sticky="w", padx=10)
@@ -211,13 +213,18 @@ class ServerGUI:
                                to=5,
                                orient="horizontal",
                                length=200,
+                               command=lambda e, n=name: self.update_slider_value(n, e),
                                style="TScale")
             slider.grid(row=slider_row, column=1, padx=5, pady=5, sticky="ew")
+            self.slider_values[name] = tk.StringVar()
+            self.slider_values[name].set(f"{var.get():.2f}")  # Initial value
+            value_label = ttk.Label(self.slider_frame, textvariable=self.slider_values[name], style="TLabel")
+            value_label.grid(row=slider_row, column=2, padx=5, pady=5, sticky="w")
             send_btn = ttk.Button(self.slider_frame,
                                    text="Set",
                                    command=lambda n=name, v=var: self.send_variable(n, v.get()),
                                    style="TButton")
-            send_btn.grid(row=slider_row, column=2, padx=5, pady=5, sticky="w")
+            send_btn.grid(row=slider_row, column=3, padx=5, pady=5, sticky="w")
             slider_row += 1
 
         # --- Quit ---
@@ -237,8 +244,14 @@ class ServerGUI:
         print(f"[GUI] Sending UDP: {message}") #changed to UDP
         self.server.send_message_udp(message) #changed to UDP
 
+    def update_slider_value(self, name, event):
+        """Update the displayed slider value."""
+        value = self.variables[name].get()
+        self.slider_values[name].set(f"{value:.2f}")
+
     def disconnect(self):
         self.server.disconnect()
+
 
 
 class BCIGUI:
@@ -270,6 +283,7 @@ class BCIGUI:
                                  ('!pressed', 'raised')])
         self.style.configure("TLabel", font=('Arial', 12), background="#f0f0f0")
         self.style.configure("TFrame", background="#f0f0f0")
+        self.style.configure("TLabelframe", background="#f0f0f0")
 
         # --- Control Buttons ---
         self.control_frame = ttk.Frame(self.root, padding=10, style="TFrame")
@@ -288,13 +302,11 @@ class BCIGUI:
         button_row = 0
         button_col = 0
         for label, cmd in buttons:
-            tk.Button(self.control_frame,
+            ttk.Button(self.control_frame,
                       text=label,
                       command=lambda c=cmd: self.server.send_message_udp(c), #changed to UDP
                       width=20,
-                      font=('Arial', 12),
-                      bg="#4CAF50",  # Green
-                      fg="white").grid(row=button_row, column=button_col, padx=5, pady=5, sticky="ew")
+                      style="TButton").grid(row=button_row, column=button_col, padx=5, pady=5, sticky="ew")
             button_col += 1
             if button_col > 2:
                 button_col = 0
@@ -309,32 +321,48 @@ class BCIGUI:
             "speedIncrement": tk.DoubleVar(value=0.05),
             "spawnInterval": tk.DoubleVar(value=3.0),
         }
+        self.slider_values = {}
 
         slider_row = 0
         for name, var in self.vars.items():
             ttk.Label(self.slider_frame, text=name, style="TLabel").grid(row=slider_row, column=0, sticky="w", padx=10)
-            ttk.Scale(self.slider_frame,
-                      variable=var,
-                      from_=0,
-                      to=5,
-                      orient="horizontal",
-                      length=200).grid(row=slider_row, column=1, padx=5, pady=5, sticky="ew")
+            slider = ttk.Scale(self.slider_frame,
+                               variable=var,
+                               from_=0,
+                               to=5,
+                               orient="horizontal",
+                               length=200,
+                               command=lambda e, n=name: self.update_slider_value(n, e),
+                               style="TScale")
+            slider.grid(row=slider_row, column=1, padx=5, pady=5, sticky="ew")
+            self.slider_values[name] = tk.StringVar()
+            self.slider_values[name].set(f"{var.get():.2f}")  # Initial value
+            value_label = ttk.Label(self.slider_frame, textvariable=self.slider_values[name], style="TLabel")
+            value_label.grid(row=slider_row, column=2, padx=5, pady=5, sticky="w")
             ttk.Button(self.slider_frame,
                        text=f"Set {name}",
                        command=lambda n=name, v=var: self.send_var(n, v.get()),
-                       style="TButton").grid(row=slider_row, column=2, padx=5, pady=5, sticky="w")
+                       style="TButton").grid(row=slider_row, column=3, padx=5, pady=5, sticky="w")
             slider_row += 1
 
         # --- Classification Buttons ---
         self.classify_frame = ttk.LabelFrame(self.root, text="Classification", padding=10, style="TLabelframe")
         self.classify_frame.pack(pady=10, fill=tk.X)  # Fill frame
 
-        ttk.Button(self.classify_frame,
-                   text="Motor Imagery",
-                   command=lambda: self.select_label(1)).pack(pady=5, fill=tk.X)
-        ttk.Button(self.classify_frame,
-                   text="Rest",
-                   command=lambda: self.select_label(0)).pack(pady=5, fill=tk.X)
+        self.motor_imagery_button = tk.Button(self.classify_frame,
+                                             text="Motor Imagery",
+                                             command=lambda: self.select_label(1),
+                                             font=('Arial', 12),
+                                             bg="#00B050",  # A shade of green
+                                             fg="white")
+        self.motor_imagery_button.pack(pady=5, fill=tk.X)
+        self.rest_button = tk.Button(self.classify_frame,
+                                           text="Rest",
+                                           command=lambda: self.select_label(0),
+                                           font=('Arial', 12),
+                                           bg="#3366FF",  # A shade of blue
+                                           fg="white")
+        self.rest_button.pack(pady=5, fill=tk.X)
 
         # --- Result Labels ---
         self.result_frame = ttk.Frame(self.root, padding=10, style="TFrame")
@@ -354,6 +382,11 @@ class BCIGUI:
         msg = f"{name}:{value:.2f}"
         print(f"[GUI] Sending UDP: {msg}") #changed to UDP
         self.server.send_message_udp(msg) #changed to UDP
+
+    def update_slider_value(self, name, event):
+        """Update the displayed slider value."""
+        value = self.vars[name].get()
+        self.slider_values[name].set(f"{value:.2f}")
 
     def select_label(self, label):
         trials = np.where(self.y == label)[0]

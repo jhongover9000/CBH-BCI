@@ -3,8 +3,8 @@ BCI.py
 --------
 BCI Main Code Implementation
 
-Description: Main code for the BCI system. Select emulation 
-or livestreaming mode. Reads data, preprocesses if needed, 
+Description: Main code for the BCI system. Select emulation
+or livestreaming mode. Reads data, preprocesses if needed,
 and classifies according to use case.
 
 Joseph Hong
@@ -23,6 +23,8 @@ from datetime import datetime
 import os
 import argparse
 import mne
+import threading
+import tkinter as tk
 
 # =============================================================
 # =============================================================
@@ -34,6 +36,7 @@ preprocess_true = True
 is_finished = False
 is_verbose = False
 is_lsl = False
+is_broadcasting = False
 
 # Directories
 data_dir = './data/'
@@ -69,7 +72,7 @@ num_channels = 0
 ch_names = []
 
 # Main Window (Partially Editable) - Minumum 2 seconds OR 413 timepoints (FIR min)
-window_size_s = 2 
+window_size_s = 2
 window_size_ms = window_size_s * 1000  # Milliseconds
 window_size_us = window_size_ms * 1000  # Microseconds
 
@@ -100,13 +103,28 @@ process_ip = "0.0.0.0"
 def initialize_bci(is_virtual = False, is_LSL = False):
     if(is_virtual):
         from receivers import virtual_receiver
-        return virtual_receiver.Emulator() 
+        return virtual_receiver.Emulator()
     elif (is_LSL):
         from receivers import lsl_receiver
-        return lsl_receiver.LSLReceiver()
+        return lsl_receiver.LSLReceiver(broadcast = is_broadcasting)
     else:
         from receivers import livestream_receiver
         return livestream_receiver.LivestreamReceiver()
+    
+def start_plot(self):
+        self.root = tk.Tk()
+        self.root.title("BCI Real-time Data")
+
+        # Add your GUI elements here (e.g., plots, labels)
+        label = tk.Label(self.root, text="Real-time EEG Data")
+        label.pack()
+
+        # Start the Tkinter event loop - THIS IS ESSENTIAL
+        self.root.mainloop()
+
+# Function to run the GUI in a separate thread
+def run_gui(bci_instance):
+    bci_instance.start_plot()
 
 # Print time and message
 def logTime(message):
@@ -129,6 +147,7 @@ if __name__ == "__main__":
     parser.add_argument('--preprocess', action='store_true', help="Enable data preprocessing")
     parser.add_argument('--verbose', action='store_true', help="Enable logging of times and processes")
     parser.add_argument('--lsl', action='store_true', help="Stream using LSL")
+    parser.add_argument('--broadcast', action='store_true', help="Broadcast to other application")
     parser.add_argument('--nfreq', type=float, default=None, help="Set a new sampling frequency for EEG data (default: keep original)")
 
     # Parse arguments, initialize variables
@@ -137,6 +156,9 @@ if __name__ == "__main__":
     is_verbose = args.verbose
     is_lsl = args.lsl
     new_freq = args.nfreq
+    if(new_freq == None):
+        new_freq = 250
+    is_broadcasting = args.broadcast
 
     # Print all parsed arguments
     print("===================================")
@@ -144,14 +166,21 @@ if __name__ == "__main__":
     print(f"  Virtual Mode:        {is_virtual}")
     print(f"  LSL Mode:        {is_lsl}")
     print(f"  Enable Preprocessing: {args.preprocess}")
+    print(f"  Broadcasting: {args.broadcast}")
     print(f"  Verbose Mode:        {is_verbose}")
     print(f"  Sampling Frequency:  {new_freq if new_freq else 'Original'}")
     print("===================================")
-    
+
     # Initialize BCI object
     bci = initialize_bci(is_virtual,is_lsl)
 
-    # bci.start_plot()
+    # Start the GUI in a separate thread
+    if hasattr(bci, 'start_plot') and callable(bci.start_plot):
+        gui_thread = threading.Thread(target=run_gui, args=(bci,))
+        gui_thread.daemon = True
+        gui_thread.start()
+    else:
+        print("Warning: The 'bci' object does not have a 'start_plot' method to run the GUI.")
 
     # Initialize connection and variables
     logTime("Initializing Connection...")
@@ -165,12 +194,12 @@ if __name__ == "__main__":
     # If different frequency has been designated for downsampling (and classification)
     if (new_freq):
         epoch_duration = int(window_size_s * new_freq)
-        
+
     print("===================================")
     print("Connection Initialized.")
     print("")
     # Notes: Initialize sampling interval via sfreq. Livestream receiver should receive 1 packet for initial details. Emulator receiver should get variables from info.
-    
+
     # Set Up Classification Model - TBD
     logTime("Compiling Model...")
     model = ATCNet_(num_classes, num_channels, epoch_duration)
@@ -178,7 +207,7 @@ if __name__ == "__main__":
     logTime("Model Compilation Complete.")
     # Note: We may need to move this earlier for the livestream due to the possibility of the TCP buffer overflowing, but this would affect the epoch_duration definition.
 
-    
+
     # Main Loop
     print("===================================")
     print("Starting to Receive.")
@@ -188,12 +217,12 @@ if __name__ == "__main__":
         # try:
             # Acquire raw data packet
             data = bci.get_data()
-            
+
             # If acquisition is successful, extend buffer
             if data is not None:
                 # Add to the data buffer
                 data_buffer = np.concatenate((data_buffer, data), axis=1)
-            
+
                 # Check if buffer has reached window size, then process
                 if len(data_buffer[0]) >= window_size_us // sampling_interval_us:
                     # Clear terminal

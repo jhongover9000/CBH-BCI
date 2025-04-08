@@ -22,6 +22,8 @@ from datetime import datetime
 from collections import Counter
 
 from broadcasting import TCP_Server
+import tkinter as tk
+import threading
 
 #==========================================================================================
 #==========================================================================================
@@ -32,14 +34,14 @@ def make_channel_names_unique(channel_names):
     counts = Counter(channel_names)
     seen = {}
     unique_names = []
-    
+
     for ch in channel_names:
         if counts[ch] > 1:
             seen[ch] = seen.get(ch, -1) + 1
             unique_names.append(f"{ch}_{seen[ch]}")
         else:
             unique_names.append(ch)
-    
+
     return unique_names
 
 #==========================================================================================
@@ -47,7 +49,7 @@ def make_channel_names_unique(channel_names):
 # CLASS DEFINITION
 
 class LSLReceiver:
-    def __init__(self, stream_type="EEG", broadcast = False):
+    def __init__(self, stream_type="EEG", broadcast = False, start_gui_callback=None, bci_instance=None):
         # Check for EEG LSL Stream
         print("Looking for an EEG stream...")
         streams = resolve_byprop('type', stream_type)
@@ -62,6 +64,8 @@ class LSLReceiver:
         self.data = None
         self.broadcasting = broadcast
         self.server = None
+        self.start_gui_callback = start_gui_callback
+        self.bci_instance = bci_instance
 
         print(f"Connected to EEG stream: {streams[0].name()}")
         self.initialize_connection()
@@ -71,10 +75,14 @@ class LSLReceiver:
             self.server = TCP_Server.TCPServer()
             self.server.initialize_connection()
 
-            # Run GUI in main thread
-            gui = TCP_Server.ServerGUI(self.server)
-            gui.root.mainloop()
+        # Start GUI if a callback and bci instance are provided
+        if self.start_gui_callback and self.bci_instance:
+            gui_thread = threading.Thread(target=self._run_gui_wrapper)
+            gui_thread.daemon = True  # Allow the main program to exit even if the thread is still running
+            gui_thread.start()
 
+    def _run_gui_wrapper(self):
+        self.start_gui_callback(self.bci_instance)
 
     # Initialize LSL connection
     def initialize_connection(self):
@@ -82,9 +90,9 @@ class LSLReceiver:
         info = self.inlet.info()
         self.channel_count = info.channel_count()
         self.sampling_frequency = info.nominal_srate()
-        self.channel_names = [info.desc().child("channels").child("channel").child_value("label") 
+        self.channel_names = [info.desc().child("channels").child("channel").child_value("label")
                               for _ in range(self.channel_count)]
-        
+
         # Extract channel names from the LSL stream
         ch_list = info.desc().child("channels").first_child()
         channel_names = []
@@ -124,26 +132,37 @@ class LSLReceiver:
 
 
         return self.sampling_frequency, self.channel_names, self.channel_count, self.data
+    
+    def start_plot(self):
+        self.root = tk.Tk()
+        self.root.title("BCI Real-time Data")
+
+        # Add your GUI elements here (e.g., plots, labels)
+        label = tk.Label(self.root, text="Real-time EEG Data")
+        label.pack()
+
+        # Start the Tkinter event loop - THIS IS ESSENTIAL
+        self.root.mainloop()
 
     # Get data from LSL stream if there is anything
     def get_data(self):
         sample, timestamp = self.inlet.pull_sample()
-        
+
         if sample:
             sample = np.array(sample).reshape((len(self.channel_names), 1))  # Reshape for channel-wise stacking
-            
+
             # Extract EEG data by filtering out non-EEG channels
             eeg_data = np.array([sample[i] for i, ch in enumerate(self.channel_names) if not ch.startswith("acc")])
-            
+
             # Optional: Store non-EEG (accelerometer) data separately
             self.accelerometer_data = {ch: sample[i] for i, ch in enumerate(self.channel_names) if ch.startswith("acc")}
 
             # print(eeg_data)
-            
+
             return eeg_data  # Return only EEG data
-    
+
         return None  # No data received
-    
+
     # Use for classification goes here, depending on what you're using
     def use_classification(self, prediction):
         print(prediction,  datetime.now())
@@ -152,7 +171,7 @@ class LSLReceiver:
             print("Rest")
         elif prediction == 1:
             if self.broadcasting:
-                self.server.send_message("TAP")
+                self.server.send_message_udp("TAP")
             print("MI")
         else:
             print("??")
@@ -160,4 +179,3 @@ class LSLReceiver:
     def disconnect(self):
         # Close connection
         print("Connection closed.")
-
