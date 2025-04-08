@@ -4,6 +4,9 @@ CBH_DEMO
 Description: Script for CBH Lab Tour BMI Demo. Limited functionality, hardcoded.
 Both datasets should be at 200Hz, so 400 timepoints for each trial.
 
+Before running with WSL, make sure to set up port forwarding via cmd (Admin)
+'netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=9999 connectaddress=<WSL2_IP_ADDRESS> connectport=9999'
+
 Joseph Hong
 
 '''
@@ -49,8 +52,8 @@ num_timepoints_nt = 200
 # Ports (Edit!)
 com_port = "/dev/ttyUSB0"
 com_baudrate = 115200
-tcp_ip = "127.0.0.1"
-tcp_port = 5005
+tcp_ip = "0.0.0.0"
+tcp_port = 9999
 
 # Command Line Arguments
 is_verbose = False
@@ -75,6 +78,7 @@ parser = argparse.ArgumentParser(description="BCI System")
 parser.add_argument('--supernumerary', action='store_true', help="BMI system for supernumerary effector MI")
 parser.add_argument('--natural', action='store_true', help="BMI system for natural effector MI")
 parser.add_argument('--verbose', action='store_true', help="Enable logging of times and processes")
+parser.add_argument('--nfreq', type=float, default=None, help="Set a new sampling frequency for EEG data (default: keep original)")
 args = parser.parse_args()
 
 # Check if not either ST or NT
@@ -104,6 +108,7 @@ elif args.natural:
 
     from broadcasting import TCP_Server
     bci = TCP_Server.TCPServer(tcp_ip, tcp_port)
+    
 
 else:
 
@@ -120,7 +125,7 @@ X_all = np.expand_dims(X, axis=1)  # (batch, 1, channels, time)
 # Initialize Connection
 bci.initialize_connection()
 
-# GUI for user input
+
 def select_label(label):
     """ Select trials based on user choice of MI or Rest """
 
@@ -153,35 +158,41 @@ def select_label(label):
     true_label.config(text=f"True Label: {label}")
     predicted_label.config(text=f"Predicted Label: {prediction}")
 
-# Create GUI
-root = tk.Tk()
-root.title("Select Motor Imagery State")
-root.geometry("400x300")
-root.configure(bg="#f0f0f0")
+# If natural, connecting to XR Sim
+if(args.natural):
+    gui = TCP_Server.BCIGUI(bci, model, X_all, y, subject_ids)
+    gui.run()
+# Else, not
+else:
+    # Create GUI
+    root = tk.Tk()
+    root.title("Select Motor Imagery State")
+    root.geometry("400x300")
+    root.configure(bg="#f0f0f0")
 
-frame = tk.Frame(root, bg="#ffffff", padx=20, pady=20, relief=tk.RIDGE, borderwidth=5)
-frame.pack(pady=20)
+    frame = tk.Frame(root, bg="#ffffff", padx=20, pady=20, relief=tk.RIDGE, borderwidth=5)
+    frame.pack(pady=20)
 
-tk.Label(frame, text="Select Motor Imagery State", font=("Arial", 14, "bold"), bg="#ffffff").pack(pady=10)
+    tk.Label(frame, text="Select Motor Imagery State", font=("Arial", 14, "bold"), bg="#ffffff").pack(pady=10)
 
-mi_button = tk.Button(frame, text="Motor Imagery", font=("Arial", 12), bg="#4CAF50", fg="white", width=15, height=2,
-                      command=lambda: select_label(1))
-mi_button.pack(pady=5)
+    mi_button = tk.Button(frame, text="Motor Imagery", font=("Arial", 12), bg="#4CAF50", fg="white", width=15, height=2,
+                        command=lambda: select_label(1))
+    mi_button.pack(pady=5)
 
-rest_button = tk.Button(frame, text="Rest", font=("Arial", 12), bg="#008CBA", fg="white", width=15, height=2,
-                         command=lambda: select_label(0))
-rest_button.pack(pady=5)
+    rest_button = tk.Button(frame, text="Rest", font=("Arial", 12), bg="#008CBA", fg="white", width=15, height=2,
+                            command=lambda: select_label(0))
+    rest_button.pack(pady=5)
 
-# Labels to display classification results
-subject_label = tk.Label(frame, text="Subject: ", font=("Arial", 12), bg="#ffffff")
-subject_label.pack()
-trial_label = tk.Label(frame, text="Trial: ", font=("Arial", 12), bg="#ffffff")
-trial_label.pack()
-true_label = tk.Label(frame, text="True Label: ", font=("Arial", 12), bg="#ffffff")
-true_label.pack()
-predicted_label = tk.Label(frame, text="Predicted Label: ", font=("Arial", 12), bg="#ffffff")
-predicted_label.pack()
+    # Labels to display classification results
+    subject_label = tk.Label(frame, text="Subject: ", font=("Arial", 12), bg="#ffffff")
+    subject_label.pack()
+    trial_label = tk.Label(frame, text="Trial: ", font=("Arial", 12), bg="#ffffff")
+    trial_label.pack()
+    true_label = tk.Label(frame, text="True Label: ", font=("Arial", 12), bg="#ffffff")
+    true_label.pack()
+    predicted_label = tk.Label(frame, text="Predicted Label: ", font=("Arial", 12), bg="#ffffff")
+    predicted_label.pack()
 
-root.mainloop()
+    root.mainloop()
 
 bci.disconnect()

@@ -21,7 +21,7 @@ from datetime import datetime
 
 from collections import Counter
 
-from broadcasting import UDP_Server
+from broadcasting import TCP_Server
 
 #==========================================================================================
 #==========================================================================================
@@ -68,8 +68,12 @@ class LSLReceiver:
 
         # If broadcasting classification (for further applications), set up UDP server
         if broadcast:
-            self.server = UDP_Server.UDPServer()
+            self.server = TCP_Server.TCPServer()
             self.server.initialize_connection()
+
+            # Run GUI in main thread
+            gui = TCP_Server.ServerGUI(self.server)
+            gui.root.mainloop()
 
 
     # Initialize LSL connection
@@ -148,7 +152,7 @@ class LSLReceiver:
             print("Rest")
         elif prediction == 1:
             if self.broadcasting:
-                self.server.send_tap_signal()
+                self.server.send_message("TAP")
             print("MI")
         else:
             print("??")
