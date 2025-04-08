@@ -7,7 +7,9 @@ plt.ion()
 plt.show()
 print(plt.isinteractive())
 
-# Replace this with the actual filename of your saved FIF file.
+data_dir = "./lsl_data/combined/"
+file_ext = '.fif'
+
 fname = 'MI_ME_10_2.fif'
 
 # Load the raw data (preload=True allows epoch extraction)

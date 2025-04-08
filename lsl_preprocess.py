@@ -4,7 +4,9 @@ import scipy.io
 import matplotlib.pyplot as plt
 
 # === Config ===
-filename = "MI_ME_10_2"  # Replace with your file name
+data_dir = "./lsl_data/combined/"
+file_ext = '.fif'
+filename = "MI_ME_10_2"
 use_mat = False  # Set to True for .mat files
 save_topos = True
 
@@ -27,7 +29,7 @@ if use_mat:
                                   description=marker_labels)
     raw.set_annotations(annotations)
 else:
-    raw = mne.io.read_raw_fif(f"{filename}.fif", preload=True)
+    raw = mne.io.read_raw_fif(f"{data_dir}{filename}.fif", preload=True)
 
 # === Apply Standard 10-20 Montage ===
 montage = mne.channels.make_standard_montage('standard_1020')  # or 'standard_1010' for higher-density caps

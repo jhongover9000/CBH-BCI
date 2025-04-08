@@ -55,7 +55,7 @@ results_dir = "./results/"
 shap_dir = "./shap/"
 
 data_version = 'v3'
-data_filename = f"subject_data_{data_version}.npz"  # Specify your desired output file
+data_filename = f"xon_subject_data_{data_version}.npz"  # Specify your desired output file
 
 # Model Variables
 nb_classes = 2
@@ -152,7 +152,7 @@ for train_index, test_index in skf.split(X, y):
     y_train, y_test = y[train_index], y[test_index]
 
     # Standardize the data
-    X_train, X_test = scaler_fit_transform(X_train, X_test)
+    # X_train, X_test = scaler_fit_transform(X_train, X_test)
 
     # Expand dimensions for compatibility with the model
     X_train = np.expand_dims(X_train, 1)

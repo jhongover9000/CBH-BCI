@@ -49,7 +49,7 @@ num_timepoints_st = 400
 num_channels_nt = 19
 num_timepoints_nt = 200
 
-# Ports (Edit!)
+# Ports (double check before runnng)
 com_port = "/dev/ttyUSB0"
 com_baudrate = 115200
 tcp_ip = "0.0.0.0"

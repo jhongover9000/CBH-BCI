@@ -42,7 +42,7 @@ random.seed(SEED)
 model_choice = 'ATCNet'  # Change to 'EEGNet' if needed
 
 # SHAP Analysis Toggle
-shap_on = True  # Set to False if you don't need SHAP analysis
+shap_on = False  # Set to False if you don't need SHAP analysis
 
 # FIX TENSORFLOW MEMORY GROWTH
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -61,8 +61,8 @@ results_dir = "./results/"
 shap_dir = "./shap/"
 
 # Data Configurations
-data_version = 'v7'
-data_type = ''
+data_version = 'v3'
+data_type = 'xon'
 if(data_type == 'mit'):
     data_filename = f"mit_subject_data_{data_version}.npz"
     weight_name = "ST"
@@ -118,7 +118,7 @@ def clear_tf_memory():
     """Clears TensorFlow's GPU memory."""
     K.clear_session()
     gc.collect()
-
+'''
 print("Starting Training...")
 # ==================================================================================================
 # TRAINING LOOP (LOSO)
@@ -259,7 +259,7 @@ plt.xlabel("Predicted Label")
 plt.savefig(f"{results_dir}{timestamp}_confusion_matrix.png")
 
 print(f"Results saved to {results_filename}")
-
+'''
 # ==================================================================================================
 # FINAL TRAINING ON ALL DATA
 

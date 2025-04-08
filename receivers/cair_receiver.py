@@ -24,6 +24,13 @@ from collections import Counter
 from broadcasting import TCP_Server
 import tkinter as tk
 import threading
+import time
+import asyncio
+from comm_controller import COMPortSignalSender
+
+# Ports (Edit - Need to check through cmd)
+com_port = "/dev/ttyS0"
+com_baudrate = 115200
 
 #==========================================================================================
 #==========================================================================================
@@ -48,8 +55,9 @@ def make_channel_names_unique(channel_names):
 #==========================================================================================
 # CLASS DEFINITION
 
-class LSLReceiver:
-    def __init__(self, stream_type="EEG", broadcast = False, start_gui_callback=None, bci_instance=None):
+class CAIRReceiver:
+    def __init__(self, stream_type="EEG", broadcast = False, com_port_finger = "/dev/ttyUSB0",
+                com_port_feedback = "/dev/ttyACM0", start_gui_callback=None, bci_instance=None):
         # Check for EEG LSL Stream
         print("Looking for an EEG stream...")
         streams = resolve_byprop('type', stream_type)
@@ -66,6 +74,9 @@ class LSLReceiver:
         self.server = None
         self.start_gui_callback = start_gui_callback
         self.bci_instance = bci_instance
+        self.finger_moving = False
+        self.port_finger = COMPortSignalSender(com_port_finger,115200)
+        self.port_feedback = COMPortSignalSender(com_port_feedback,115200)
 
         print(f"Connected to EEG stream: {streams[0].name()}")
         self.initialize_connection()
@@ -81,11 +92,27 @@ class LSLReceiver:
             gui_thread.daemon = True  # Allow the main program to exit even if the thread is still running
             gui_thread.start()
 
+    def finger_flex(self):
+        # If finger is not moving, flex finger followed by extension
+        if(not self.finger_moving):
+            self.finger_moving = True
+            self.port_finger.send_signal("v100")
+            self.port_feedback.send_signal("v100")
+            asyncio.sleep(2)
+            self.port_finger.send_signal("v0")
+            self.port_feedback.send_signal("v0")
+            asyncio.sleep(2)
+            self.finger_moving = False
+
     def _run_gui_wrapper(self):
         self.start_gui_callback(self.bci_instance)
 
     # Initialize LSL connection
     def initialize_connection(self):
+        # Initialize COM Ports
+        self.port_finger.initialize_connection()
+        self.port_feedback.initialize_connection()
+
         # Retrieve LSL stream info
         info = self.inlet.info()
         self.channel_count = info.channel_count()
@@ -130,16 +157,13 @@ class LSLReceiver:
         print("===================================")
         print("Initial Data Shape:", np.shape(self.data))
 
-        
-
-
         return self.sampling_frequency, self.channel_names, self.channel_count, self.data
     
     def start_plot(self):
         self.root = tk.Tk()
         self.root.title("BCI Real-time Data")
 
-        # Add your GUI elements here (e.g., plots, labels)
+        # GUI WILL GO HERE
         label = tk.Label(self.root, text="Real-time EEG Data")
         label.pack()
 
@@ -172,8 +196,7 @@ class LSLReceiver:
         if prediction == 0:
             print("Rest")
         elif prediction == 1:
-            if self.broadcasting:
-                self.server.send_message_udp("TAP")
+            self.finger_flex()
             print("MI")
         else:
             print("??")

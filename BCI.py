@@ -100,13 +100,17 @@ process_ip = "0.0.0.0"
 # Functions
 
 # Initialize BCI System Type
-def initialize_bci(is_virtual = False, is_LSL = False):
-    if(is_virtual):
+def initialize_bci(args):
+    if(args.virtual):
         from receivers import virtual_receiver
         return virtual_receiver.Emulator()
-    elif (is_LSL):
-        from receivers import lsl_receiver
-        return lsl_receiver.LSLReceiver(broadcast = is_broadcasting)
+    # special case, hardcoded, new receiver for CAIR demo
+    elif(args.supernumerary and args.lsl):
+        from receivers import cair_receiver
+        return cair_receiver.CAIRReceiver()
+    # elif (args.lsl):
+    #     from receivers import lsl_receiver
+    #     return lsl_receiver.LSLReceiver(broadcast = is_broadcasting)
     else:
         from receivers import livestream_receiver
         return livestream_receiver.LivestreamReceiver()
@@ -149,6 +153,7 @@ if __name__ == "__main__":
     parser.add_argument('--lsl', action='store_true', help="Stream using LSL")
     parser.add_argument('--broadcast', action='store_true', help="Broadcast to other application")
     parser.add_argument('--nfreq', type=float, default=None, help="Set a new sampling frequency for EEG data (default: keep original)")
+    parser.add_argument('--supernumerary', action='store_true', help="Predictions used are sent to supernumerary thumb")
 
     # Parse arguments, initialize variables
     args = parser.parse_args()
@@ -159,6 +164,7 @@ if __name__ == "__main__":
     if(new_freq == None):
         new_freq = 250
     is_broadcasting = args.broadcast
+    preprocess_true = args.preprocess
 
     # Print all parsed arguments
     print("===================================")
@@ -172,7 +178,7 @@ if __name__ == "__main__":
     print("===================================")
 
     # Initialize BCI object
-    bci = initialize_bci(is_virtual,is_lsl)
+    bci = initialize_bci(args)
 
     # Start the GUI in a separate thread
     if hasattr(bci, 'start_plot') and callable(bci.start_plot):
@@ -207,7 +213,7 @@ if __name__ == "__main__":
     logTime("Model Compilation Complete.")
     # Note: We may need to move this earlier for the livestream due to the possibility of the TCP buffer overflowing, but this would affect the epoch_duration definition.
 
-
+    first = True
     # Main Loop
     print("===================================")
     print("Starting to Receive.")
@@ -244,6 +250,9 @@ if __name__ == "__main__":
                     logTime("Classification Started:")
                     probability = model.predict(data_block)
                     prediction = probability.argmax(axis=-1)
+                    if (first):
+                        prediction = 1
+                        first = False
                     logTime(f"Classified {prediction}:")
 
                     # Perform Task Based on Implementation
@@ -262,6 +271,10 @@ if __name__ == "__main__":
                     logTime("Data Buffer Update Started:")
                     # print((operating_window_size_s*sfreq) - overlap_timepoints)
                     data_buffer = data_buffer[:, int(operating_window_size_s*sfreq) - overlap_timepoints:]
+
+                    # Clear Buffer if MI Predicted
+                    if (prediction == 1):
+                        data_buffer = np.zeros((num_channels, 0))
                     # print(data_buffer)
                     # buffer_length = np.shape(data_buffer)[1]
                     # print(buffer_length)
