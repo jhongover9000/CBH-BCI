@@ -5,12 +5,13 @@ import numpy as np
 import argparse
 import random
 import tkinter as tk
+from tkinter import ttk
 from tkinter import messagebox
 from datetime import datetime
 import os
 
 class TCPServer:
-    def __init__(self, host='0.0.0.0', tcp_port=9999, udp_port=12345, buffer_size=1024):
+    def __init__(self, host='0.0.0.0', tcp_port=9999, udp_port=5005, buffer_size=1024):
         self.host = host
         self.tcp_port = tcp_port
         self.udp_port = udp_port  # Port to send UDP messages
@@ -145,8 +146,31 @@ class ServerGUI:
         self.server = server
         self.root = tk.Tk()
         self.root.title("Unity Experiment Controller")
+        self.root.geometry("500x500")  # Increased size for better layout
+        self.root.configure(bg="#f0f0f0")
+
+        # --- Style ---
+        self.style = ttk.Style()
+        self.style.configure("TButton",
+                             padding=10,
+                             font=('Arial', 12),
+                             background="#4CAF50",  # Green
+                             foreground="white")
+        self.style.map("TButton",
+                         foreground=[('disabled', 'gray'),
+                                     ('active', 'white')],
+                         background=[('disabled', 'gray'),
+                                     ('active', '#388E3C')],  # Darker Green
+                         relief=[('pressed', 'sunken'),
+                                 ('!pressed', 'raised')])
+
+        self.style.configure("TLabel", font=('Arial', 12), background="#f0f0f0")
+        self.style.configure("TScale", background="#f0f0f0")
 
         # --- Button Controls ---
+        self.button_frame = ttk.Frame(self.root, padding=10, style="TFrame")
+        self.button_frame.pack(fill=tk.X)
+
         controls = [
             ("Swap Rig", "rigSwap"),
             ("Freeze Rig", "rigFreeze"),
@@ -159,32 +183,49 @@ class ServerGUI:
         ]
 
         row = 0
+        col = 0
         for label, command in controls:
-            btn = ttk.Button(self.root, text=label, width=20, command=lambda c=command: self.send_command(c))
-            btn.grid(row=row, column=0, padx=10, pady=2, sticky="w")
-            row += 1
+            btn = ttk.Button(self.button_frame, text=label, command=lambda c=command: self.send_command(c), style="TButton")
+            btn.grid(row=row, column=col, padx=5, pady=5, sticky="ew")
+            col += 1
+            if col > 2:
+                col = 0
+                row += 1
 
         # --- Variable Sliders ---
+        self.slider_frame = ttk.Frame(self.root, padding=10, style="TFrame")
+        self.slider_frame.pack(fill=tk.X)
+
         self.variables = {
             "beltVelocity": tk.DoubleVar(value=0.1),
             "speedIncrement": tk.DoubleVar(value=0.05),
             "spawnInterval": tk.DoubleVar(value=3.0),
         }
 
+        slider_row = 0
         for name, var in self.variables.items():
-            ttk.Label(self.root, text=name).grid(row=row, column=0, sticky="w", padx=10)
-            slider = ttk.Scale(self.root, variable=var, from_=0, to=5, orient="horizontal", length=200)
-            slider.grid(row=row, column=1, padx=5, pady=2)
-            send_btn = ttk.Button(self.root, text="Set", command=lambda n=name, v=var: self.send_variable(n, v.get()))
-            send_btn.grid(row=row, column=2)
-            row += 1
+            ttk.Label(self.slider_frame, text=name, style="TLabel").grid(row=slider_row, column=0, sticky="w", padx=10)
+            slider = ttk.Scale(self.slider_frame,
+                               variable=var,
+                               from_=0,
+                               to=5,
+                               orient="horizontal",
+                               length=200,
+                               style="TScale")
+            slider.grid(row=slider_row, column=1, padx=5, pady=5, sticky="ew")
+            send_btn = ttk.Button(self.slider_frame,
+                                   text="Set",
+                                   command=lambda n=name, v=var: self.send_variable(n, v.get()),
+                                   style="TButton")
+            send_btn.grid(row=slider_row, column=2, padx=5, pady=5, sticky="w")
+            slider_row += 1
 
         # --- Quit ---
-        quit_btn = ttk.Button(self.root, text="Quit", command=lambda: self.disconnect())
-        quit_btn.grid(row=row, column=0, columnspan=3, pady=10)
+        self.quit_button = ttk.Button(self.root, text="Quit", command=lambda: self.disconnect(), style="TButton")
+        self.quit_button.pack(pady=10)
 
-        # Run GUI in a non-blocking thread.
-        # threading.Thread(target=self.root.mainloop, daemon=True).start()
+        # --- Styling for Frames
+        self.style.configure("TFrame", background="#f0f0f0")  # Light gray background
 
     def send_command(self, command):
         message = f"{command}"
@@ -199,6 +240,7 @@ class ServerGUI:
     def disconnect(self):
         self.server.disconnect()
 
+
 class BCIGUI:
     def __init__(self, server, model, X_all, y, subject_ids):
         self.server = server
@@ -209,11 +251,29 @@ class BCIGUI:
 
         self.root = tk.Tk()
         self.root.title("CBH BCI Demo Control Panel")
-        self.root.geometry("500x500")
+        self.root.geometry("600x800")  # Increased size
+        self.root.configure(bg="#f0f0f0")
+
+        # --- Style ---
+        self.style = ttk.Style()
+        self.style.configure("TButton",
+                             padding=10,
+                             font=('Arial', 12),
+                             background="#4CAF50",  # Green
+                             foreground="white")
+        self.style.map("TButton",
+                         foreground=[('disabled', 'gray'),
+                                     ('active', 'white')],
+                         background=[('disabled', 'gray'),
+                                     ('active', '#388E3C')],  # Darker Green
+                         relief=[('pressed', 'sunken'),
+                                 ('!pressed', 'raised')])
+        self.style.configure("TLabel", font=('Arial', 12), background="#f0f0f0")
+        self.style.configure("TFrame", background="#f0f0f0")
 
         # --- Control Buttons ---
-        control_frame = tk.Frame(self.root, padx=10, pady=10)
-        control_frame.pack(pady=5)
+        self.control_frame = ttk.Frame(self.root, padding=10, style="TFrame")
+        self.control_frame.pack(pady=10, fill=tk.X)  # Fill frame horizontally
 
         buttons = [
             ("Swap Rig", "rigSwap"),
@@ -222,13 +282,27 @@ class BCIGUI:
             ("Finger Tap", "fingerTap"),
             ("Spawn Coins", "spawnCoins"),
             ("Stop Spawning", "stopSpawning"),
+            ("Raise Table", "raiseTable"),
+            ("Lower Table", "lowerTable")
         ]
+        button_row = 0
+        button_col = 0
         for label, cmd in buttons:
-            tk.Button(control_frame, text=label, command=lambda c=cmd: self.server.send_message(c), width=20).pack(pady=2)
+            tk.Button(self.control_frame,
+                      text=label,
+                      command=lambda c=cmd: self.server.send_message_udp(c), #changed to UDP
+                      width=20,
+                      font=('Arial', 12),
+                      bg="#4CAF50",  # Green
+                      fg="white").grid(row=button_row, column=button_col, padx=5, pady=5, sticky="ew")
+            button_col += 1
+            if button_col > 2:
+                button_col = 0
+                button_row += 1
 
         # --- Sliders for Variables ---
-        slider_frame = tk.Frame(self.root, padx=10, pady=10)
-        slider_frame.pack()
+        self.slider_frame = ttk.Frame(self.root, padding=10, style="TFrame")
+        self.slider_frame.pack(pady=10, fill=tk.X)  # Fill frame
 
         self.vars = {
             "beltVelocity": tk.DoubleVar(value=0.1),
@@ -236,37 +310,50 @@ class BCIGUI:
             "spawnInterval": tk.DoubleVar(value=3.0),
         }
 
+        slider_row = 0
         for name, var in self.vars.items():
-            tk.Label(slider_frame, text=name).pack()
-            tk.Scale(slider_frame, variable=var, from_=0, to=5, resolution=0.01,
-                     orient="horizontal", length=200).pack()
-            tk.Button(slider_frame, text=f"Set {name}",
-                      command=lambda n=name, v=var: self.send_var(n, v.get())).pack(pady=2)
+            ttk.Label(self.slider_frame, text=name, style="TLabel").grid(row=slider_row, column=0, sticky="w", padx=10)
+            ttk.Scale(self.slider_frame,
+                      variable=var,
+                      from_=0,
+                      to=5,
+                      orient="horizontal",
+                      length=200).grid(row=slider_row, column=1, padx=5, pady=5, sticky="ew")
+            ttk.Button(self.slider_frame,
+                       text=f"Set {name}",
+                       command=lambda n=name, v=var: self.send_var(n, v.get()),
+                       style="TButton").grid(row=slider_row, column=2, padx=5, pady=5, sticky="w")
+            slider_row += 1
 
         # --- Classification Buttons ---
-        classify_frame = tk.LabelFrame(self.root, text="Classification", padx=10, pady=10)
-        classify_frame.pack(pady=10)
+        self.classify_frame = ttk.LabelFrame(self.root, text="Classification", padding=10, style="TLabelframe")
+        self.classify_frame.pack(pady=10, fill=tk.X)  # Fill frame
 
-        tk.Button(classify_frame, text="Motor Imagery", width=20,
-                  command=lambda: self.select_label(1)).pack(pady=2)
-        tk.Button(classify_frame, text="Rest", width=20,
-                  command=lambda: self.select_label(0)).pack(pady=2)
+        ttk.Button(self.classify_frame,
+                   text="Motor Imagery",
+                   command=lambda: self.select_label(1)).pack(pady=5, fill=tk.X)
+        ttk.Button(self.classify_frame,
+                   text="Rest",
+                   command=lambda: self.select_label(0)).pack(pady=5, fill=tk.X)
 
         # --- Result Labels ---
-        self.subject_label = tk.Label(self.root, text="Subject: ")
-        self.trial_label = tk.Label(self.root, text="Trial: ")
-        self.true_label = tk.Label(self.root, text="True Label: ")
-        self.predicted_label = tk.Label(self.root, text="Predicted Label: ")
+        self.result_frame = ttk.Frame(self.root, padding=10, style="TFrame")
+        self.result_frame.pack(pady=10, fill=tk.X)
 
-        self.subject_label.pack()
-        self.trial_label.pack()
-        self.true_label.pack()
-        self.predicted_label.pack()
+        self.subject_label = ttk.Label(self.result_frame, text="Subject: ", style="TLabel")
+        self.trial_label = ttk.Label(self.result_frame, text="Trial: ", style="TLabel")
+        self.true_label = ttk.Label(self.result_frame, text="True Label: ", style="TLabel")
+        self.predicted_label = ttk.Label(self.result_frame, text="Predicted Label: ", style="TLabel")
+
+        self.subject_label.pack(fill=tk.X)
+        self.trial_label.pack(fill=tk.X)
+        self.true_label.pack(fill=tk.X)
+        self.predicted_label.pack(fill=tk.X)
 
     def send_var(self, name, value):
         msg = f"{name}:{value:.2f}"
-        print(f"[GUI] Sending: {msg}")
-        self.server.send_message(msg)
+        print(f"[GUI] Sending UDP: {msg}") #changed to UDP
+        self.server.send_message_udp(msg) #changed to UDP
 
     def select_label(self, label):
         trials = np.where(self.y == label)[0]
@@ -294,6 +381,7 @@ class BCIGUI:
         self.root.mainloop()
 
 
+
 if __name__ == "__main__":
     local_ip = TCPServer.get_local_ip()
     print(f"Your local IP is likely: {local_ip}")
@@ -304,9 +392,8 @@ if __name__ == "__main__":
     threading.Thread(target=server.initialize_connection, daemon=True).start()
 
     # Run GUI in main thread
-    gui = ServerGUI(server)
+    gui = ServerGUI(server) #changed to ServerGUI
     gui.root.mainloop()
-
     # # Keep the main thread alive
     # while True:
     #     time.sleep(1)
