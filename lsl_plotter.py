@@ -38,8 +38,8 @@ for fname in os.listdir(data_dir):
         # Optionally, mark 'Cz' as bad and interpolate it if present
         if 'Cz' in temp.ch_names:
             temp.info['bads'] = ['Cz']
-            temp.interpolate_bads(reset_bads=True)
-            # temp.drop_channels('Cz')
+            # temp.interpolate_bads(reset_bads=True)
+            temp.drop_channels('Cz')
         
         # Apply filtering and set common average reference
         temp.filter(1, 40.0, fir_design='firwin')
@@ -76,6 +76,8 @@ sfreq = raw.info['sfreq']
 n_cycles = 5
 frequencies_alpha = np.arange(8, 14, 1)     # Alpha: 8-13 Hz
 frequencies_beta = np.arange(13, 31, 2)       # Beta: 13-31 Hz
+
+raw.plot()
 
 # Get raw data (channels x time)
 data = raw.get_data()

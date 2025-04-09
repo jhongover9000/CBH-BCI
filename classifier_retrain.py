@@ -32,10 +32,10 @@ ref_weights_dir = "./reference_weights/"
 saved_weights_dir = "./saved_weights/"
 results_dir = "./results/"
 shap_dir = "./shap/"
-ref_weight = 'ATCNet_Full.weights.h5'
+ref_weight = 'ATC_NT.weights.h5'
 
 # Data Configurations
-data_version = 'v3'
+data_version = 'v4'
 data_type = 'xon'
 if(data_type == 'mit'):
     data_filename = f"mit_subject_data_{data_version}.npz"
@@ -54,10 +54,14 @@ print(f"New Data loaded. X shape: {X_new.shape}, y shape: {y_new.shape}, Subject
 
 # Training Configurations
 epochs = 90  # Fine-tuning for fewer epochs
-batch_size = 16
+batch_size = 8
 learning_rate = 0.00001  # Lower LR for fine-tuning
 nb_classes = 2
-weight_decay = 0
+weight_decay = 0.01
+
+# Number of layers to freeze (you might need to experiment with this value)
+num_layers_to_freeze = 2
+
 
 # Timestamp
 timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
@@ -107,6 +111,19 @@ for orig_layer_name, new_layer_name in layer_mapping.items():
         print(f"⚠ Skipping {orig_layer_name} due to mismatch: {e}")
 
 print("Weight transfer complete. Now fine-tuning.")
+
+# ==================================================================================================
+# FREEZE LAYERS
+
+print(f"Freezing the first {num_layers_to_freeze} layers of the new model.")
+for i, layer in enumerate(new_model.layers[:num_layers_to_freeze]):
+    layer.trainable = False
+    print(f"🔒 Layer {i}: {layer.name} is now frozen.")
+
+# Verify which layers are trainable
+print("\nTrainable layers in the new model:")
+for layer in new_model.layers:
+    print(f"- {layer.name}: {layer.trainable}")
 
 # ==================================================================================================
 # DATA PREPARATION

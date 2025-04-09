@@ -3,17 +3,13 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-plt.ion()
-plt.show()
-print(plt.isinteractive())
-
 data_dir = "./lsl_data/combined/"
 file_ext = '.fif'
 
-fname = 'MI_ME_10_2.fif'
+fname = 'MI_ME_10_3.fif'
 
 # Load the raw data (preload=True allows epoch extraction)
-raw = mne.io.read_raw_fif(fname, preload=True)
+raw = mne.io.read_raw_fif(f"{data_dir}{fname}", preload=True)
 
 # === Plot Raw Data ===
 
@@ -46,3 +42,7 @@ print(epochs)
 
 # Optionally, you can inspect the epochs:
 epochs.plot()
+import time
+time.sleep(100)
+
+plt.show()
