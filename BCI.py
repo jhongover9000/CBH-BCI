@@ -44,7 +44,7 @@ ref_weights_dir = "./reference_weights/"
 saved_weights_dir = "./saved_weights/"
 results_dir = "./results/"
 shap_dir = "./shap/"
-weight_filename = "A1TCNet_Xon" #<>.weights.h5
+weight_filename = "ATCNet_Xon_NEW" #<>.weights.h5
 
 # Emulator Variables
 vhdr_name_loc = ""
@@ -77,7 +77,7 @@ window_size_ms = window_size_s * 1000  # Milliseconds
 window_size_us = window_size_ms * 1000  # Microseconds
 
 # Receiver Variables (Editable)
-seconds_to_read = 60
+seconds_to_read = 600
 
 # OPERATING WINDOW - This is the number of seconds you want to use for classification
 operating_window_size_s = 1
@@ -252,9 +252,11 @@ if __name__ == "__main__":
                     logTime("Classification Started:")
                     probability = model.predict(data_block)
                     prediction = probability.argmax(axis=-1)
-                    if (first):
-                        prediction = 1
-                        first = False
+                    
+                    # if (first):
+                    #     prediction = 1
+                    #     first = False
+
                     logTime(f"Classified {prediction}:")
 
                     # Perform Task Based on Implementation

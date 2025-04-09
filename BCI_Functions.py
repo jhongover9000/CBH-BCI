@@ -42,6 +42,8 @@ def preprocess_raw(data_buffer, f_list, info, new_freq, is_lsl, is_verbose):
         print("Finished Bandpass Filtering:", datetime.now())
         print("")
 
+    # mne_array.notch_filter(55)
+
     if is_lsl:
         # Optionally, mark 'Cz' as bad and interpolate it if present
         if 'Cz' in mne_array.ch_names:
@@ -69,7 +71,7 @@ def preprocess_raw(data_buffer, f_list, info, new_freq, is_lsl, is_verbose):
     # mneDataFiltered.apply_function(lambda x: x - np.median(x), picks='eeg')
 
     # NEED TO CHECK THE VOLTAGE OF THE SIGNALS
-    mne_array= 1e6 * mne_array.get_data()
+    mne_array= 1e2 * mne_array.get_data()
 
     #add dimensions to match the input layer of the model
     mne_array = np.expand_dims(mne_array, axis=0)
