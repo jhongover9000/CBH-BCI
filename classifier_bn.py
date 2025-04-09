@@ -61,8 +61,8 @@ results_dir = "./results/"
 shap_dir = "./shap/"
 
 # Data Configurations
-data_version = 'v3'
-data_type = 'xon'
+data_version = 'v4'
+data_type = 'mit'
 if(data_type == 'mit'):
     data_filename = f"mit_subject_data_{data_version}.npz"
     weight_name = "ST"

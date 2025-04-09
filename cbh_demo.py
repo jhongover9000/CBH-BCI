@@ -38,7 +38,7 @@ DATASET_SUPERNUMERARY = "subject_data_st.npz"
 DATASET_NATURAL = "subject_data_nt.npz"
 
 # Weights
-weight_filename_st = "ATCNet_ST"
+weight_filename_st = "ATC_ST"
 weight_filename_nt = "ATCNet_NT"
 
 num_classes = 2

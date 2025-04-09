@@ -44,7 +44,7 @@ ref_weights_dir = "./reference_weights/"
 saved_weights_dir = "./saved_weights/"
 results_dir = "./results/"
 shap_dir = "./shap/"
-weight_filename = "ATCNet_Xon" #<>.weights.h5
+weight_filename = "A1TCNet_Xon" #<>.weights.h5
 
 # Emulator Variables
 vhdr_name_loc = ""
@@ -212,7 +212,8 @@ if __name__ == "__main__":
     model.load_weights(ref_weights_dir + f"{weight_filename}.weights.h5", skip_mismatch=True)
     logTime("Model Compilation Complete.")
     # Note: We may need to move this earlier for the livestream due to the possibility of the TCP buffer overflowing, but this would affect the epoch_duration definition.
-
+    import asyncio
+    import random
     first = True
     # Main Loop
     print("===================================")
@@ -226,6 +227,7 @@ if __name__ == "__main__":
 
             # If acquisition is successful, extend buffer
             if data is not None:
+                # print(data)
                 # Add to the data buffer
                 data_buffer = np.concatenate((data_buffer, data), axis=1)
 

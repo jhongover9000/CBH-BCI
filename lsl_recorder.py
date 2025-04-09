@@ -418,8 +418,8 @@ class EEGMarkerGUI:
         raw = mne.io.RawArray(eeg_array, info)
 
         onsets_sec = np.array(marker_rel_times) / 1000
-        annotations = mne.Annotations(onset=onsets_sec,
-                              duration=[0.001] * len(onsets_sec),
+        annotations = mne.Annotations(onset=marker_rel_times,
+                              duration=[0.0] * len(marker_rel_times),
                               description=marker_labels)
         raw.set_annotations(annotations)
 

@@ -32,7 +32,7 @@ def ATCNet_(n_classes, in_chans=22, in_samples=1125, n_windows=5, attention='mha
                          weightDecay=conv_weightDecay, maxNorm=conv_maxNorm,
                          in_chans=in_chans, dropout=eegn_dropout)
     
-    # block1 = BatchNormalization()(block1)  # BN after Conv Block
+    block1 = BatchNormalization()(block1)  # BN after Conv Block
     block1 = Activation('relu')(block1)
 
     block1 = Lambda(lambda x: x[:, :, -1, :], output_shape=(block1.shape[1], block1.shape[-1]))(block1)  # Ensure valid shape
@@ -64,7 +64,7 @@ def ATCNet_(n_classes, in_chans=22, in_samples=1125, n_windows=5, attention='mha
             else:
                 block2 = attention_block(block2, attention)
 
-        # block2 = BatchNormalization()(block2)  # BN before TCN
+        block2 = BatchNormalization()(block2)  # BN before TCN
 
         # Temporal Convolutional Network (TCN)
         block3 = TCN_block_(input_layer=block2, input_dimension=F2, depth=tcn_depth,
@@ -72,7 +72,7 @@ def ATCNet_(n_classes, in_chans=22, in_samples=1125, n_windows=5, attention='mha
                             weightDecay=conv_weightDecay, maxNorm=conv_maxNorm,
                             dropout=tcn_dropout, activation=tcn_activation)
         
-        # block3 = BatchNormalization()(block3)  # BN in TCN
+        block3 = BatchNormalization()(block3)  # BN in TCN
         block3 = Lambda(lambda x: x[:, -1, :], output_shape=(block3.shape[-1],))(block3)  # Fix shape extraction
 
         # Fuse sliding window outputs
