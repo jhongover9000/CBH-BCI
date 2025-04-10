@@ -290,12 +290,16 @@ class EEGMarkerGUI:
         self.root.bind("<Escape>", lambda e: self.stop_stream())
         self.cue_win.bind("<Escape>", lambda e: self.stop_stream())
 
+        # Get the first sample and its timestamp to establish the start time
         first_sample, self.start_timestamp_lsl = self.eeg_inlet.pull_sample()
-        self.timestamps.append(self.start_timestamp_lsl)
-        self.eeg_data.append([first_sample[i] for i in self.eeg_indices])
-
-        threading.Thread(target=self.record_loop, daemon=True).start()
-        self.trial_loop()
+        if self.start_timestamp_lsl is not None:
+            self.timestamps.append(self.start_timestamp_lsl)
+            self.eeg_data.append([first_sample[i] for i in self.eeg_indices])
+            threading.Thread(target=self.record_loop, daemon=True).start()
+            self.trial_loop()
+        else:
+            self.log("Error: Could not get initial timestamp from LSL.")
+            self.stop_stream()
 
     def stop_stream(self):
         self.running = False
@@ -318,8 +322,12 @@ class EEGMarkerGUI:
         self.update_cue("", "Blank")
         now = local_clock()
         self.marker_outlet.push_sample(['blank1'])
-        rel_time = (now - self.start_timestamp_lsl) * 1000
-        self.markers.append(('blank1', now, rel_time))
+        # Calculate time relative to the start of the recording
+        if self.start_timestamp_lsl is not None:
+            relative_time = now - self.start_timestamp_lsl
+            self.markers.append(('blank1', relative_time))
+        else:
+            self.markers.append(('blank1', now)) # Fallback if start time is not available
         self.log(f"Pre-trial blank phase ({self.blank1_duration.get()} s)")
         self.root.after(self.blank1_duration.get() * 1000, self.start_baseline1_phase)
 
@@ -327,8 +335,12 @@ class EEGMarkerGUI:
         self.update_cue("+", "Baseline")
         now = local_clock()
         self.marker_outlet.push_sample(['baseline'])
-        rel_time = (now - self.start_timestamp_lsl) * 1000
-        self.markers.append(('baseline', now, rel_time))
+        # Calculate time relative to the start of the recording
+        if self.start_timestamp_lsl is not None:
+            relative_time = now - self.start_timestamp_lsl
+            self.markers.append(('baseline', relative_time))
+        else:
+            self.markers.append(('baseline', now)) # Fallback if start time is not available
         self.log(f"Baseline 1 phase ({self.baseline1_duration.get()} s)")
         self.root.after(self.baseline1_duration.get() * 1000, self.start_motor_execution_phase)
 
@@ -337,8 +349,12 @@ class EEGMarkerGUI:
             self.update_cue("M", "Motor Execution")
             now = local_clock()
             self.marker_outlet.push_sample(['execution'])
-            rel_time = (now - self.start_timestamp_lsl) * 1000
-            self.markers.append(('execution', now, rel_time))
+            # Calculate time relative to the start of the recording
+            if self.start_timestamp_lsl is not None:
+                relative_time = now - self.start_timestamp_lsl
+                self.markers.append(('execution', relative_time))
+            else:
+                self.markers.append(('execution', now)) # Fallback if start time is not available
             self.log(f"Motor Execution phase ({self.motor_duration.get()} s)")
             self.root.after(self.motor_duration.get() * 1000, self.start_blank2_phase)
         else:
@@ -349,8 +365,12 @@ class EEGMarkerGUI:
         self.update_cue("", "Blank")
         now = local_clock()
         self.marker_outlet.push_sample(['blank2'])
-        rel_time = (now - self.start_timestamp_lsl) * 1000
-        self.markers.append(('blank2', now, rel_time))
+        # Calculate time relative to the start of the recording
+        if self.start_timestamp_lsl is not None:
+            relative_time = now - self.start_timestamp_lsl
+            self.markers.append(('blank2', relative_time))
+        else:
+            self.markers.append(('blank2', now)) # Fallback if start time is not available
         self.log(f"Post-execution blank phase ({self.blank2_duration.get()} s)")
         self.root.after(self.blank2_duration.get() * 1000, self.start_baseline2_phase)
 
@@ -358,8 +378,12 @@ class EEGMarkerGUI:
         self.update_cue("+", "Baseline")
         now = local_clock()
         self.marker_outlet.push_sample(['baseline'])
-        rel_time = (now - self.start_timestamp_lsl) * 1000
-        self.markers.append(('baseline', now, rel_time))
+        # Calculate time relative to the start of the recording
+        if self.start_timestamp_lsl is not None:
+            relative_time = now - self.start_timestamp_lsl
+            self.markers.append(('baseline', relative_time))
+        else:
+            self.markers.append(('baseline', now)) # Fallback if start time is not available
         self.log(f"Baseline 2 phase ({self.baseline2_duration.get()} s)")
         self.root.after(self.baseline2_duration.get() * 1000, self.start_activity_phase)
 
@@ -380,15 +404,23 @@ class EEGMarkerGUI:
         if activity == 'imagery':
             self.update_cue("I", "Motor Imagery")
             self.marker_outlet.push_sample(['imagery'])
-            rel_time = (now - self.start_timestamp_lsl) * 1000
-            self.markers.append(('imagery', now, rel_time))
+            # Calculate time relative to the start of the recording
+            if self.start_timestamp_lsl is not None:
+                relative_time = now - self.start_timestamp_lsl
+                self.markers.append(('imagery', relative_time))
+            else:
+                self.markers.append(('imagery', now)) # Fallback if start time is not available
             self.log(f"Motor Imagery phase ({self.imagery_duration.get()} s)")
             self.root.after(self.imagery_duration.get() * 1000, self.trial_loop)
         else:
             self.update_cue("", "Rest")
             self.marker_outlet.push_sample(['rest'])
-            rel_time = (now - self.start_timestamp_lsl) * 1000
-            self.markers.append(('rest', now, rel_time))
+            # Calculate time relative to the start of the recording
+            if self.start_timestamp_lsl is not None:
+                relative_time = now - self.start_timestamp_lsl
+                self.markers.append(('rest', relative_time))
+            else:
+                self.markers.append(('rest', now)) # Fallback if start time is not available
             self.log(f"Rest phase ({self.rest_duration.get()} s)")
             self.root.after(self.rest_duration.get() * 1000, self.trial_loop)
 
@@ -410,15 +442,19 @@ class EEGMarkerGUI:
         eeg_array = np.array(self.eeg_data).T
         times_array = np.array(self.timestamps)
         marker_labels = [str(m[0]) for m in self.markers]
-        marker_abs_times = [m[1] for m in self.markers]
-        marker_rel_times = [m[2] for m in self.markers]
+        # Convert relative time objects to seconds
+        marker_rel_times = [m[1] if not isinstance(m[1], float) else m[1] for m in self.markers]
+        if self.start_timestamp_lsl is not None:
+            marker_rel_times = [(m[1] - self.start_timestamp_lsl) for m in self.markers]
+        else:
+            marker_rel_times = [m[1] for m in self.markers] # Fallback to absolute times
 
         info = mne.create_info(ch_names=[self.eeg_channels[i] for i in self.eeg_indices],
                                sfreq=self.sfreq, ch_types='eeg')
         raw = mne.io.RawArray(eeg_array, info)
 
-        onsets_sec = np.array(marker_rel_times) / 1000
-        annotations = mne.Annotations(onset=marker_rel_times,
+        onsets_sec = np.array(marker_rel_times)
+        annotations = mne.Annotations(onset=onsets_sec,
                               duration=[0.0] * len(marker_rel_times),
                               description=marker_labels)
         raw.set_annotations(annotations)
@@ -432,8 +468,7 @@ class EEGMarkerGUI:
                 'data': eeg_array,
                 'timestamps': times_array,
                 'markers': marker_labels,
-                'marker_abs_times': marker_abs_times,
-                'marker_rel_times': marker_rel_times,
+                'marker_rel_times': onsets_sec,
                 'sfreq': self.sfreq,
                 'channels': [self.eeg_channels[i] for i in self.eeg_indices]
             })
@@ -443,7 +478,8 @@ class EEGMarkerGUI:
             try:
                 raw_check = mne.io.read_raw_fif(filename, preload=False)
                 saved_labels = set(raw_check.annotations.description)
-                print("Verified annotations in saved file:", saved_labels)
+                saved_onsets = raw_check.annotations.onset
+                print("Verified annotations in saved file:", list(zip(saved_labels, saved_onsets)))
                 expected_labels = set(marker_labels)
                 if expected_labels == saved_labels:
                     print("✅ All marker labels saved correctly.")
