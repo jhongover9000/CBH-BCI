@@ -28,6 +28,7 @@ for fname in os.listdir(data_dir):
         file_path = os.path.join(data_dir, fname)
         print(f"Loading {fname}")
         temp = mne.io.read_raw_fif(file_path, preload=True)
+        temp._data = temp._data / 1e6
         
         # Retain only channels that are part of the standard montage
         valid_ch_names = montage.ch_names
@@ -73,7 +74,7 @@ if not event_indices:
 sfreq = raw.info['sfreq']
 
 # ----- 3. Compute Morlet Wavelet Power for Alpha & Beta Bands -----
-n_cycles = 5
+n_cycles = 3
 frequencies_alpha = np.arange(8, 14, 1)     # Alpha: 8-13 Hz
 frequencies_beta = np.arange(13, 31, 2)       # Beta: 13-31 Hz
 
