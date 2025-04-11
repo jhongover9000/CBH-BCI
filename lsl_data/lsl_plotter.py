@@ -20,7 +20,7 @@ import os
 data_dir = "./lsl_data/combined/"
 file_ext = '.fif'
 raw_list = []
-event = "imagery"
+event = "execution"
 montage = mne.channels.make_standard_montage('standard_1020')
 
 for fname in os.listdir(data_dir):

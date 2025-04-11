@@ -39,6 +39,7 @@ class EEGMarkerGUI:
         self.timestamps = []
         self.markers = []
         self.start_timestamp_lsl = None
+        self.recording_start_time = None
 
         self.eeg_inlet = None
         self.marker_outlet = None
@@ -231,8 +232,6 @@ class EEGMarkerGUI:
         self.root.bind('<Configure>', lambda e: update_fonts())
         self.update_fonts = update_fonts
 
-
-
     def update_label(self, label_widget, val):
         label_widget.config(text=f"{int(float(val))} s")
 
@@ -290,11 +289,15 @@ class EEGMarkerGUI:
         self.root.bind("<Escape>", lambda e: self.stop_stream())
         self.cue_win.bind("<Escape>", lambda e: self.stop_stream())
 
-        # Get the first sample and its timestamp to establish the start time
+        # Get the first sample and its timestamp
         first_sample, self.start_timestamp_lsl = self.eeg_inlet.pull_sample()
+        self.start_timestamp_lsl = local_clock()
         if self.start_timestamp_lsl is not None:
+            # self.start_timestamp_offset = 
             self.timestamps.append(self.start_timestamp_lsl)
             self.eeg_data.append([first_sample[i] for i in self.eeg_indices])
+            self.recording_start_time = self.start_timestamp_lsl # Store the exact start time
+            self.log(f"Recording started at LSL timestamp: {self.recording_start_time:.4f}")
             threading.Thread(target=self.record_loop, daemon=True).start()
             self.trial_loop()
         else:
@@ -320,70 +323,85 @@ class EEGMarkerGUI:
 
     def start_blank1_phase(self):
         self.update_cue("", "Blank")
-        now = local_clock()
-        self.marker_outlet.push_sample(['blank1'])
+        marker_timestamp = local_clock()  # Capture LSL timestamp at the moment of sending
+        self.marker_outlet.push_sample(['blank1'], timestamp=marker_timestamp)
         # Calculate time relative to the start of the recording
         if self.start_timestamp_lsl is not None:
-            relative_time = now - self.start_timestamp_lsl
-            self.markers.append(('blank1', relative_time))
+            relative_time = marker_timestamp - self.start_timestamp_lsl
+            self.markers.append(('blank1', marker_timestamp))
+            self.log(f"Marker 'blank1' sent at LSL timestamp: {marker_timestamp:.4f} (relative to start: {relative_time:.4f})")
         else:
-            self.markers.append(('blank1', now)) # Fallback if start time is not available
+            self.markers.append(('blank1', marker_timestamp)) # Fallback
+            self.log(f"Marker 'blank1' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
         self.log(f"Pre-trial blank phase ({self.blank1_duration.get()} s)")
         self.root.after(self.blank1_duration.get() * 1000, self.start_baseline1_phase)
 
     def start_baseline1_phase(self):
         self.update_cue("+", "Baseline")
-        now = local_clock()
-        self.marker_outlet.push_sample(['baseline'])
-        # Calculate time relative to the start of the recording
+        marker_timestamp = local_clock()
+        self.marker_outlet.push_sample(['baseline'], timestamp=marker_timestamp)
         if self.start_timestamp_lsl is not None:
-            relative_time = now - self.start_timestamp_lsl
-            self.markers.append(('baseline', relative_time))
+            relative_time = marker_timestamp - self.start_timestamp_lsl
+            self.markers.append(('baseline', marker_timestamp))
+            self.log(f"Marker 'baseline' sent at LSL timestamp: {marker_timestamp:.4f} (relative to start: {relative_time:.4f})")
         else:
-            self.markers.append(('baseline', now)) # Fallback if start time is not available
+            self.markers.append(('baseline', marker_timestamp))
+            self.log(f"Marker 'baseline' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
         self.log(f"Baseline 1 phase ({self.baseline1_duration.get()} s)")
         self.root.after(self.baseline1_duration.get() * 1000, self.start_motor_execution_phase)
 
     def start_motor_execution_phase(self):
         if self.select_motor_exec.get():
             self.update_cue("M", "Motor Execution")
-            now = local_clock()
-            self.marker_outlet.push_sample(['execution'])
-            # Calculate time relative to the start of the recording
+            marker_timestamp = local_clock()
+            self.marker_outlet.push_sample(['execution'], timestamp=marker_timestamp)
             if self.start_timestamp_lsl is not None:
-                relative_time = now - self.start_timestamp_lsl
-                self.markers.append(('execution', relative_time))
+                relative_time = marker_timestamp - self.start_timestamp_lsl
+                self.markers.append(('execution', marker_timestamp))
+                self.log(f"Marker 'execution' sent at LSL timestamp: {marker_timestamp:.4f} (relative to start: {relative_time:.4f})")
             else:
-                self.markers.append(('execution', now)) # Fallback if start time is not available
+                self.markers.append(('execution', marker_timestamp))
+                self.log(f"Marker 'execution' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
             self.log(f"Motor Execution phase ({self.motor_duration.get()} s)")
-            self.root.after(self.motor_duration.get() * 1000, self.start_blank2_phase)
+            
+            # Check MI or Rest are selected, if not, loop through ME Only
+            imagery = self.select_motor_imagery.get()
+            rest = self.select_rest.get()
+            if not (imagery or rest):
+                self.log(f"Neither Rest no Imagery selected, starting next loop.")
+                self.root.after(self.motor_duration.get() * 1000, self.trial_loop)
+                return
+            else:
+                self.root.after(self.motor_duration.get() * 1000, self.start_blank2_phase)
         else:
             self.log("Motor Execution phase skipped")
             self.start_blank2_phase()
 
     def start_blank2_phase(self):
         self.update_cue("", "Blank")
-        now = local_clock()
-        self.marker_outlet.push_sample(['blank2'])
-        # Calculate time relative to the start of the recording
+        marker_timestamp = local_clock()
+        self.marker_outlet.push_sample(['blank2'], timestamp=marker_timestamp)
         if self.start_timestamp_lsl is not None:
-            relative_time = now - self.start_timestamp_lsl
-            self.markers.append(('blank2', relative_time))
+            relative_time = marker_timestamp - self.start_timestamp_lsl
+            self.markers.append(('blank2', marker_timestamp))
+            self.log(f"Marker 'blank2' sent at LSL timestamp: {marker_timestamp:.4f} (relative to start: {relative_time:.4f})")
         else:
-            self.markers.append(('blank2', now)) # Fallback if start time is not available
+            self.markers.append(('blank2', marker_timestamp))
+            self.log(f"Marker 'blank2' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
         self.log(f"Post-execution blank phase ({self.blank2_duration.get()} s)")
         self.root.after(self.blank2_duration.get() * 1000, self.start_baseline2_phase)
 
     def start_baseline2_phase(self):
         self.update_cue("+", "Baseline")
-        now = local_clock()
-        self.marker_outlet.push_sample(['baseline'])
-        # Calculate time relative to the start of the recording
+        marker_timestamp = local_clock()
+        self.marker_outlet.push_sample(['baseline'], timestamp=marker_timestamp)
         if self.start_timestamp_lsl is not None:
-            relative_time = now - self.start_timestamp_lsl
-            self.markers.append(('baseline', relative_time))
+            relative_time = marker_timestamp - self.start_timestamp_lsl
+            self.markers.append(('baseline', marker_timestamp))
+            self.log(f"Marker 'baseline' sent at LSL timestamp: {marker_timestamp:.4f} (relative to start: {relative_time:.4f})")
         else:
-            self.markers.append(('baseline', now)) # Fallback if start time is not available
+            self.markers.append(('baseline', marker_timestamp))
+            self.log(f"Marker 'baseline' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
         self.log(f"Baseline 2 phase ({self.baseline2_duration.get()} s)")
         self.root.after(self.baseline2_duration.get() * 1000, self.start_activity_phase)
 
@@ -391,8 +409,8 @@ class EEGMarkerGUI:
         imagery = self.select_motor_imagery.get()
         rest = self.select_rest.get()
         if not (imagery or rest):
-            messagebox.showerror("Error", "Select at least one activity for Block 2 (Motor Imagery or Rest).")
-            self.stop_stream()
+            self.log(f"Neither Rest no Imagery selected, starting next loop.")
+            self.trial_loop()
             return
         if imagery and rest:
             activity = random.choice(['imagery', 'rest'])
@@ -400,27 +418,29 @@ class EEGMarkerGUI:
             activity = 'imagery'
         else:
             activity = 'rest'
-        now = local_clock()
+        marker_timestamp = local_clock()
         if activity == 'imagery':
             self.update_cue("I", "Motor Imagery")
-            self.marker_outlet.push_sample(['imagery'])
-            # Calculate time relative to the start of the recording
+            self.marker_outlet.push_sample(['imagery'], timestamp=marker_timestamp)
             if self.start_timestamp_lsl is not None:
-                relative_time = now - self.start_timestamp_lsl
-                self.markers.append(('imagery', relative_time))
+                relative_time = marker_timestamp - self.start_timestamp_lsl
+                self.markers.append(('imagery', marker_timestamp))
+                self.log(f"Marker 'imagery' sent at LSL timestamp: {marker_timestamp:.4f} (relative to start: {relative_time:.4f})")
             else:
-                self.markers.append(('imagery', now)) # Fallback if start time is not available
+                self.markers.append(('imagery', marker_timestamp))
+                self.log(f"Marker 'imagery' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
             self.log(f"Motor Imagery phase ({self.imagery_duration.get()} s)")
             self.root.after(self.imagery_duration.get() * 1000, self.trial_loop)
         else:
             self.update_cue("", "Rest")
-            self.marker_outlet.push_sample(['rest'])
-            # Calculate time relative to the start of the recording
+            self.marker_outlet.push_sample(['rest'], timestamp=marker_timestamp)
             if self.start_timestamp_lsl is not None:
-                relative_time = now - self.start_timestamp_lsl
-                self.markers.append(('rest', relative_time))
+                relative_time = marker_timestamp - self.start_timestamp_lsl
+                self.markers.append(('rest', marker_timestamp))
+                self.log(f"Marker 'rest' sent at LSL timestamp: {marker_timestamp:.4f} (relative to start: {relative_time:.4f})")
             else:
-                self.markers.append(('rest', now)) # Fallback if start time is not available
+                self.markers.append(('rest', marker_timestamp))
+                self.log(f"Marker 'rest' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
             self.log(f"Rest phase ({self.rest_duration.get()} s)")
             self.root.after(self.rest_duration.get() * 1000, self.trial_loop)
 
@@ -442,33 +462,50 @@ class EEGMarkerGUI:
         eeg_array = np.array(self.eeg_data).T
         times_array = np.array(self.timestamps)
         marker_labels = [str(m[0]) for m in self.markers]
-        # Convert relative time objects to seconds
-        marker_rel_times = [m[1] if not isinstance(m[1], float) else m[1] for m in self.markers]
-        if self.start_timestamp_lsl is not None:
-            marker_rel_times = [(m[1] - self.start_timestamp_lsl) for m in self.markers]
+
+        print("Recording Start Time:", self.recording_start_time)
+        print("First EEG Timestamp:", times_array[0] if times_array.size > 0 else None)
+        print("Last EEG Timestamp:", times_array[-1] if times_array.size > 0 else None)
+
+        if not self.markers:
+            self.log("Warning: No markers recorded.")
+            info = mne.create_info(ch_names=[self.eeg_channels[i] for i in self.eeg_indices],
+                                   sfreq=self.sfreq, ch_types='eeg')
+            raw = mne.io.RawArray(eeg_array, info)
         else:
-            marker_rel_times = [m[1] for m in self.markers] # Fallback to absolute times
+            marker_onsets = []
+            for marker in self.markers:
+                label, timestamp_lsl = marker
+                print(f"Marker '{label}' LSL Timestamp: {timestamp_lsl:.4f}")
+                if hasattr(self, 'recording_start_time') and self.recording_start_time is not None:
+                    onset = timestamp_lsl - self.recording_start_time
+                    marker_onsets.append(onset)
+                    self.log(f"Saving marker '{label}': LSL timestamp={timestamp_lsl:.4f}, onset (relative to recording start)={onset:.4f}")
+                else:
+                    self.log(f"Error: Recording start time not available for marker '{label}', using absolute LSL time.")
+                    marker_onsets.append(timestamp_lsl)
 
-        info = mne.create_info(ch_names=[self.eeg_channels[i] for i in self.eeg_indices],
-                               sfreq=self.sfreq, ch_types='eeg')
-        raw = mne.io.RawArray(eeg_array, info)
+            annotations = mne.Annotations(onset=np.array(marker_onsets),
+                                  duration=[0.0] * len(self.markers),
+                                  description=marker_labels)
+            info = mne.create_info(ch_names=[self.eeg_channels[i] for i in self.eeg_indices],
+                                   sfreq=self.sfreq, ch_types='eeg')
+            raw = mne.io.RawArray(eeg_array, info, first_samp=0)
 
-        onsets_sec = np.array(marker_rel_times)
-        annotations = mne.Annotations(onset=onsets_sec,
-                              duration=[0.0] * len(marker_rel_times),
-                              description=marker_labels)
-        raw.set_annotations(annotations)
+            raw.set_annotations(annotations)
 
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"eeg_recording_{timestamp_str}.{self.file_format.get()}"
         if self.file_format.get() == "fif":
             raw.save(filename, overwrite=True)
         else:
+            marker_abs_times = [m[1] for m in self.markers]
             savemat(filename, {
                 'data': eeg_array,
                 'timestamps': times_array,
                 'markers': marker_labels,
-                'marker_rel_times': onsets_sec,
+                'marker_abs_times': marker_abs_times,
+                'marker_rel_times': np.array(marker_onsets) if self.markers else [],
                 'sfreq': self.sfreq,
                 'channels': [self.eeg_channels[i] for i in self.eeg_indices]
             })
@@ -477,14 +514,20 @@ class EEGMarkerGUI:
         if filename.endswith(".fif"):
             try:
                 raw_check = mne.io.read_raw_fif(filename, preload=False)
-                saved_labels = set(raw_check.annotations.description)
-                saved_onsets = raw_check.annotations.onset
-                print("Verified annotations in saved file:", list(zip(saved_labels, saved_onsets)))
+                saved_annotations = raw_check.annotations
+                saved_labels = saved_annotations.description
+                saved_onsets = saved_annotations.onset
+                print("Verified annotations in saved file:")
+                for onset, duration, label in zip(saved_annotations.onset, saved_annotations.duration, saved_annotations.description):
+                    print(f"  Onset: {onset:.4f} s, Duration: {duration:.4f} s, Label: {label}")
+
                 expected_labels = set(marker_labels)
-                if expected_labels == saved_labels:
-                    print("✅ All marker labels saved correctly.")
+                saved_unique_labels = set(saved_labels)
+                if expected_labels == saved_unique_labels:
+                    print("✅ All expected marker labels are present.")
                 else:
-                    print("⚠️ Mismatch in saved labels! Expected:", expected_labels, "Got:", saved_labels)
+                    print("⚠️ Mismatch in saved labels! Expected:", expected_labels, "Got:", saved_unique_labels)
+
             except Exception as e:
                 print("Error verifying saved annotations:", e)
 

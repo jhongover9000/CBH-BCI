@@ -2,6 +2,7 @@
 CLASSIFIER (W MODEL BATCH NORMALIZATION)
 
 Description: Classification training for a model with batch normalization.
+Should be run as 'python -m classification.classifier_bn.py'
 
 Joseph Hong
 
