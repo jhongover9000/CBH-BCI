@@ -333,8 +333,9 @@ class EEGMarkerGUI:
         else:
             self.markers.append(('blank1', marker_timestamp)) # Fallback
             self.log(f"Marker 'blank1' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
-        self.log(f"Pre-trial blank phase ({self.blank1_duration.get()} s)")
-        self.root.after(self.blank1_duration.get() * 1000, self.start_baseline1_phase)
+        blank_duration_randomized = random.randrange(1.5,self.blank1_duration.get())
+        self.log(f"Pre-trial blank phase ({blank_duration_randomized} s)")
+        self.root.after(blank_duration_randomized * 1000, self.start_baseline1_phase)
 
     def start_baseline1_phase(self):
         self.update_cue("+", "Baseline")
@@ -347,8 +348,9 @@ class EEGMarkerGUI:
         else:
             self.markers.append(('baseline', marker_timestamp))
             self.log(f"Marker 'baseline' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
-        self.log(f"Baseline 1 phase ({self.baseline1_duration.get()} s)")
-        self.root.after(self.baseline1_duration.get() * 1000, self.start_motor_execution_phase)
+        blank_duration_randomized = random.randrange(1.5,self.blank1_duration.get())
+        self.log(f"Pre-trial blank phase ({blank_duration_randomized} s)")
+        self.root.after(blank_duration_randomized * 1000, self.start_baseline1_phase)
 
     def start_motor_execution_phase(self):
         if self.select_motor_exec.get():
