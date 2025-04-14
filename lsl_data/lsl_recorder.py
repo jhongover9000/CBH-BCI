@@ -13,8 +13,8 @@ class EEGMarkerGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("EEG Marker GUI")
-        self.root.geometry("550x850")  # Initial window size; scroll will allow access to all controls.
-        self.root.minsize(600, 600)
+        self.root.geometry("550x900")  # Increased height to accommodate new checkbox
+        self.root.minsize(600, 650)      # Increased min height
 
         # Adjustable durations (in seconds)
         self.blank1_duration = tk.IntVar(value=2)      # Pre-trial blank
@@ -33,6 +33,9 @@ class EEGMarkerGUI:
         self.select_motor_imagery = tk.BooleanVar(value=True)
         self.select_rest = tk.BooleanVar(value=True)
 
+        # Option to randomize execution block
+        self.randomize_execution = tk.BooleanVar(value=False)
+
         self.running = False
         self.current_trial = 0
         self.eeg_data = []
@@ -40,12 +43,16 @@ class EEGMarkerGUI:
         self.markers = []
         self.start_timestamp_lsl = None
         self.recording_start_time = None
+        self.trial_sequence = []
+        self.trial_phase_index = 0  # To track the current phase within a trial
 
         self.eeg_inlet = None
         self.marker_outlet = None
         self.eeg_channels = []
         self.eeg_indices = []
         self.sfreq = 0
+
+        self.min_baseline = 1.5
 
         self.setup_ui()
         self.setup_lsl()
@@ -99,7 +106,7 @@ class EEGMarkerGUI:
             if hasattr(self, 'cue_label'):
                 screen_width = self.cue_win.winfo_screenwidth()
                 screen_height = self.cue_win.winfo_screenheight()
-                cue_font_size = 20  # Larger cue font
+                cue_font_size = 50
                 self.cue_label.config(font=(font_name, cue_font_size, "bold"))
 
         # --- Pre-trial Blank Duration ---
@@ -138,34 +145,39 @@ class EEGMarkerGUI:
         cb_motor.grid(row=9, column=0, sticky="w")
         self.dynamic_buttons.append(cb_motor)
 
+        # --- Randomize Execution Block ---
+        cb_randomize_exec = tk.Checkbutton(scrollable_frame, text="Randomize Execution Block Order", variable=self.randomize_execution)
+        cb_randomize_exec.grid(row=10, column=0, sticky="w", pady=(0, 10))
+        self.dynamic_buttons.append(cb_randomize_exec)
+
         # --- Blank 2 Duration ---
         lbl_blank2 = tk.Label(scrollable_frame, text="Post-Execution Blank Duration (s)")
-        lbl_blank2.grid(row=10, column=0, sticky="w", pady=(10, 2))
+        lbl_blank2.grid(row=11, column=0, sticky="w", pady=(10, 2))
         self.dynamic_labels.append(lbl_blank2)
         blank2_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
                                  variable=self.blank2_duration,
                                  command=lambda val: self.update_label(self.blank2_val_label, val))
-        blank2_scale.grid(row=11, column=0, sticky="ew")
+        blank2_scale.grid(row=12, column=0, sticky="ew")
         self.blank2_val_label = tk.Label(scrollable_frame, text="2 s")
-        self.blank2_val_label.grid(row=12, column=0, sticky="e", pady=(0, 10))
+        self.blank2_val_label.grid(row=13, column=0, sticky="e", pady=(0, 10))
 
         # --- Baseline 2 Duration ---
         lbl_baseline2 = tk.Label(scrollable_frame, text="Baseline 2 Duration (s)")
-        lbl_baseline2.grid(row=13, column=0, sticky="w", pady=(0, 2))
+        lbl_baseline2.grid(row=14, column=0, sticky="w", pady=(0, 2))
         self.dynamic_labels.append(lbl_baseline2)
         baseline2_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
                                     variable=self.baseline2_duration,
                                     command=lambda val: self.update_label(self.baseline2_val_label, val))
-        baseline2_scale.grid(row=14, column=0, sticky="ew")
+        baseline2_scale.grid(row=15, column=0, sticky="ew")
         self.baseline2_val_label = tk.Label(scrollable_frame, text="5 s")
-        self.baseline2_val_label.grid(row=15, column=0, sticky="e", pady=(0, 10))
+        self.baseline2_val_label.grid(row=16, column=0, sticky="e", pady=(0, 10))
 
         # --- Activity Phase (Block 2) Selection & Durations ---
         lbl_activity = tk.Label(scrollable_frame, text="Block 2 Activity (choose one or both):")
-        lbl_activity.grid(row=16, column=0, sticky="w", pady=(10, 2))
+        lbl_activity.grid(row=17, column=0, sticky="w", pady=(10, 2))
         self.dynamic_labels.append(lbl_activity)
         act_frame = tk.Frame(scrollable_frame)
-        act_frame.grid(row=17, column=0, sticky="w", pady=(0, 10))
+        act_frame.grid(row=18, column=0, sticky="w", pady=(0, 10))
         cb_imagery = tk.Checkbutton(act_frame, text="Motor Imagery", variable=self.select_motor_imagery)
         cb_imagery.pack(side="left", padx=(0, 10))
         self.dynamic_buttons.append(cb_imagery)
@@ -174,57 +186,57 @@ class EEGMarkerGUI:
         self.dynamic_buttons.append(cb_rest)
         # Motor Imagery Duration slider
         lbl_imagery = tk.Label(scrollable_frame, text="Motor Imagery Duration (s)")
-        lbl_imagery.grid(row=18, column=0, sticky="w", pady=(0, 2))
+        lbl_imagery.grid(row=19, column=0, sticky="w", pady=(0, 2))
         self.dynamic_labels.append(lbl_imagery)
         imagery_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
                                   variable=self.imagery_duration,
                                   command=lambda val: self.update_label(self.imagery_val_label, val))
-        imagery_scale.grid(row=19, column=0, sticky="ew")
+        imagery_scale.grid(row=20, column=0, sticky="ew")
         self.imagery_val_label = tk.Label(scrollable_frame, text="5 s")
-        self.imagery_val_label.grid(row=20, column=0, sticky="e", pady=(0, 10))
+        self.imagery_val_label.grid(row=21, column=0, sticky="e", pady=(0, 10))
         # Rest Duration slider
         lbl_rest = tk.Label(scrollable_frame, text="Rest Duration (s)")
-        lbl_rest.grid(row=21, column=0, sticky="w", pady=(0, 2))
+        lbl_rest.grid(row=22, column=0, sticky="w", pady=(0, 2))
         self.dynamic_labels.append(lbl_rest)
         rest_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
                                variable=self.rest_duration,
                                command=lambda val: self.update_label(self.rest_val_label, val))
-        rest_scale.grid(row=22, column=0, sticky="ew")
+        rest_scale.grid(row=23, column=0, sticky="ew")
         self.rest_val_label = tk.Label(scrollable_frame, text="5 s")
-        self.rest_val_label.grid(row=23, column=0, sticky="e", pady=(0, 10))
+        self.rest_val_label.grid(row=24, column=0, sticky="e", pady=(0, 10))
 
         # --- Total Trials ---
         lbl_trials = tk.Label(scrollable_frame, text="Total Trials")
-        lbl_trials.grid(row=24, column=0, sticky="w", pady=(10, 2))
+        lbl_trials.grid(row=25, column=0, sticky="w", pady=(10, 2))
         self.dynamic_labels.append(lbl_trials)
         t_spinbox = ttk.Spinbox(scrollable_frame, from_=1, to=100, textvariable=self.total_trials, width=5)
-        t_spinbox.grid(row=25, column=0, sticky="w", pady=(0, 10))
+        t_spinbox.grid(row=26, column=0, sticky="w", pady=(0, 10))
 
         # --- File Format ---
         lbl_format = tk.Label(scrollable_frame, text="Save Format")
-        lbl_format.grid(row=26, column=0, sticky="w", pady=(0, 2))
+        lbl_format.grid(row=27, column=0, sticky="w", pady=(0, 2))
         self.dynamic_labels.append(lbl_format)
         format_menu = ttk.OptionMenu(scrollable_frame, self.file_format, "fif", "fif", "mat")
-        format_menu.grid(row=27, column=0, sticky="ew", pady=(0, 10))
+        format_menu.grid(row=28, column=0, sticky="ew", pady=(0, 10))
 
         # --- Trial Label ---
         self.trial_label = tk.Label(scrollable_frame, text="Trial: 0 / 0")
-        self.trial_label.grid(row=28, column=0, pady=(10, 5))
+        self.trial_label.grid(row=29, column=0, pady=(10, 5))
 
         # --- Logs ---
         lbl_logs = tk.Label(scrollable_frame, text="Logs")
-        lbl_logs.grid(row=29, column=0, sticky="w")
+        lbl_logs.grid(row=30, column=0, sticky="w")
         self.dynamic_labels.append(lbl_logs)
         self.log_box = tk.Text(scrollable_frame, height=6, state="disabled", bg="#f5f5f5")
-        self.log_box.grid(row=30, column=0, sticky="nsew", pady=(0, 10))
-        scrollable_frame.grid_rowconfigure(30, weight=2)
+        self.log_box.grid(row=31, column=0, sticky="nsew", pady=(0, 10))
+        scrollable_frame.grid_rowconfigure(31, weight=2)
 
         # --- Start and Stop Buttons ---
         self.start_button = tk.Button(scrollable_frame, text="Start Session", command=self.start_stream)
-        self.start_button.grid(row=31, column=0, sticky="ew", pady=(0, 5))
+        self.start_button.grid(row=32, column=0, sticky="ew", pady=(0, 5))
         self.dynamic_buttons.append(self.start_button)
         self.stop_button = tk.Button(scrollable_frame, text="Stop and Save", command=self.stop_stream, state="disabled")
-        self.stop_button.grid(row=32, column=0, sticky="ew")
+        self.stop_button.grid(row=33, column=0, sticky="ew")
         self.dynamic_buttons.append(self.stop_button)
 
         # Font update binding
@@ -268,6 +280,36 @@ class EEGMarkerGUI:
         self.log(f"EEG Channels: {self.eeg_channels}")
         self.log(f"Excluded Channels: {[ch for ch in channel_names if ch.startswith('acc')]}")
 
+    def generate_trial_sequence(self):
+        num_trials = self.total_trials.get()
+        imagery_enabled = self.select_motor_imagery.get()
+        rest_enabled = self.select_rest.get()
+        execution_enabled = self.select_motor_exec.get()
+        randomize_execution = self.randomize_execution.get()
+
+        possible_block2 = []
+        if imagery_enabled:
+            possible_block2.append('imagery')
+        if rest_enabled:
+            possible_block2.append('rest')
+
+        if not possible_block2:
+            return []
+
+        trial_sequence = []
+        for _ in range(num_trials):
+            trial_blocks = []
+            if execution_enabled:
+                trial_blocks.append('execution_block')
+            if possible_block2:
+                trial_blocks.append(random.choice(possible_block2))
+
+            if randomize_execution and execution_enabled and len(trial_blocks) > 1:
+                random.shuffle(trial_blocks)
+
+            trial_sequence.append(trial_blocks)
+        return trial_sequence
+
     def start_stream(self):
         self.running = True
         self.start_button.config(state="disabled")
@@ -276,6 +318,8 @@ class EEGMarkerGUI:
         self.timestamps = []
         self.markers = []
         self.current_trial = 0
+        self.trial_phase_index = 0
+        self.trial_sequence = self.generate_trial_sequence()
         self.trial_label.config(text=f"Trial: 0 / {self.total_trials.get()}")
 
         self.cue_win = tk.Toplevel(self.root)
@@ -293,13 +337,13 @@ class EEGMarkerGUI:
         first_sample, self.start_timestamp_lsl = self.eeg_inlet.pull_sample()
         self.start_timestamp_lsl = local_clock()
         if self.start_timestamp_lsl is not None:
-            # self.start_timestamp_offset = 
+            # self.start_timestamp_offset =
             self.timestamps.append(self.start_timestamp_lsl)
             self.eeg_data.append([first_sample[i] for i in self.eeg_indices])
             self.recording_start_time = self.start_timestamp_lsl # Store the exact start time
             self.log(f"Recording started at LSL timestamp: {self.recording_start_time:.4f}")
             threading.Thread(target=self.record_loop, daemon=True).start()
-            self.trial_loop()
+            self.process_trial_phase()
         else:
             self.log("Error: Could not get initial timestamp from LSL.")
             self.stop_stream()
@@ -313,13 +357,32 @@ class EEGMarkerGUI:
         self.log("Recording stopped. Saving data...")
         self.save_data()
 
-    def trial_loop(self):
+    def process_trial_phase(self):
         if not self.running or self.current_trial >= self.total_trials.get():
             self.stop_stream()
             return
-        self.current_trial += 1
-        self.trial_label.config(text=f"Trial: {self.current_trial} / {self.total_trials.get()}")
-        self.start_blank1_phase()
+
+        if self.current_trial > len(self.trial_sequence):
+            self.log("Error: Trial sequence exhausted.")
+            self.stop_stream()
+            return
+
+        current_trial_blocks = self.trial_sequence[self.current_trial - 1]
+
+        if self.trial_phase_index < len(current_trial_blocks):
+            phase = current_trial_blocks[self.trial_phase_index]
+            if phase == 'execution_block':
+                self.start_motor_execution_phase()
+            elif phase == 'imagery':
+                self.start_imagery_phase()
+            elif phase == 'rest':
+                self.start_rest_phase()
+            self.trial_phase_index += 1
+        else:
+            self.trial_phase_index = 0
+            self.current_trial += 1
+            self.trial_label.config(text=f"Trial: {self.current_trial} / {self.total_trials.get()}")
+            self.start_blank1_phase()
 
     def start_blank1_phase(self):
         self.update_cue("", "Blank")
@@ -333,9 +396,8 @@ class EEGMarkerGUI:
         else:
             self.markers.append(('blank1', marker_timestamp)) # Fallback
             self.log(f"Marker 'blank1' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
-        blank_duration_randomized = random.randrange(1.5,self.blank1_duration.get())
-        self.log(f"Pre-trial blank phase ({blank_duration_randomized} s)")
-        self.root.after(blank_duration_randomized * 1000, self.start_baseline1_phase)
+        self.log(f"Pre-trial blank phase ({self.blank1_duration.get()} s)")
+        self.root.after(self.blank1_duration.get() * 1000, self.start_baseline1_phase)
 
     def start_baseline1_phase(self):
         self.update_cue("+", "Baseline")
@@ -348,36 +410,23 @@ class EEGMarkerGUI:
         else:
             self.markers.append(('baseline', marker_timestamp))
             self.log(f"Marker 'baseline' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
-        blank_duration_randomized = random.randrange(1.5,self.blank1_duration.get())
-        self.log(f"Pre-trial blank phase ({blank_duration_randomized} s)")
-        self.root.after(blank_duration_randomized * 1000, self.start_baseline1_phase)
+        duration_randomized = random.uniform(self.min_baseline, self.baseline1_duration.get())
+        self.log(f"Baseline 1 phase ({duration_randomized:.2f} s)")
+        self.root.after(int(duration_randomized * 1000), self.process_trial_phase)
 
     def start_motor_execution_phase(self):
-        if self.select_motor_exec.get():
-            self.update_cue("M", "Motor Execution")
-            marker_timestamp = local_clock()
-            self.marker_outlet.push_sample(['execution'], timestamp=marker_timestamp)
-            if self.start_timestamp_lsl is not None:
-                relative_time = marker_timestamp - self.start_timestamp_lsl
-                self.markers.append(('execution', marker_timestamp))
-                self.log(f"Marker 'execution' sent at LSL timestamp: {marker_timestamp:.4f} (relative to start: {relative_time:.4f})")
-            else:
-                self.markers.append(('execution', marker_timestamp))
-                self.log(f"Marker 'execution' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
-            self.log(f"Motor Execution phase ({self.motor_duration.get()} s)")
-            
-            # Check MI or Rest are selected, if not, loop through ME Only
-            imagery = self.select_motor_imagery.get()
-            rest = self.select_rest.get()
-            if not (imagery or rest):
-                self.log(f"Neither Rest no Imagery selected, starting next loop.")
-                self.root.after(self.motor_duration.get() * 1000, self.trial_loop)
-                return
-            else:
-                self.root.after(self.motor_duration.get() * 1000, self.start_blank2_phase)
+        self.update_cue("M", "Motor Execution")
+        marker_timestamp = local_clock()
+        self.marker_outlet.push_sample(['execution'], timestamp=marker_timestamp)
+        if self.start_timestamp_lsl is not None:
+            relative_time = marker_timestamp - self.start_timestamp_lsl
+            self.markers.append(('execution', marker_timestamp))
+            self.log(f"Marker 'execution' sent at LSL timestamp: {marker_timestamp:.4f} (relative to start: {relative_time:.4f})")
         else:
-            self.log("Motor Execution phase skipped")
-            self.start_blank2_phase()
+            self.markers.append(('execution', marker_timestamp))
+            self.log(f"Marker 'execution' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
+        self.log(f"Motor Execution phase ({self.motor_duration.get()} s)")
+        self.root.after(self.motor_duration.get() * 1000, self.start_blank2_phase)
 
     def start_blank2_phase(self):
         self.update_cue("", "Blank")
@@ -404,47 +453,37 @@ class EEGMarkerGUI:
         else:
             self.markers.append(('baseline', marker_timestamp))
             self.log(f"Marker 'baseline' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
-        self.log(f"Baseline 2 phase ({self.baseline2_duration.get()} s)")
-        self.root.after(self.baseline2_duration.get() * 1000, self.start_activity_phase)
+        duration_randomized = random.uniform(self.min_baseline, self.baseline2_duration.get())
+        self.log(f"Baseline 2 phase ({duration_randomized:.2f} s)")
+        self.root.after(int(duration_randomized * 1000), self.process_trial_phase)
 
-    def start_activity_phase(self):
-        imagery = self.select_motor_imagery.get()
-        rest = self.select_rest.get()
-        if not (imagery or rest):
-            self.log(f"Neither Rest no Imagery selected, starting next loop.")
-            self.trial_loop()
-            return
-        if imagery and rest:
-            activity = random.choice(['imagery', 'rest'])
-        elif imagery:
-            activity = 'imagery'
-        else:
-            activity = 'rest'
+    def start_imagery_phase(self):
+        self.update_cue("I", "Motor Imagery")
         marker_timestamp = local_clock()
-        if activity == 'imagery':
-            self.update_cue("I", "Motor Imagery")
-            self.marker_outlet.push_sample(['imagery'], timestamp=marker_timestamp)
-            if self.start_timestamp_lsl is not None:
-                relative_time = marker_timestamp - self.start_timestamp_lsl
-                self.markers.append(('imagery', marker_timestamp))
-                self.log(f"Marker 'imagery' sent at LSL timestamp: {marker_timestamp:.4f} (relative to start: {relative_time:.4f})")
-            else:
-                self.markers.append(('imagery', marker_timestamp))
-                self.log(f"Marker 'imagery' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
-            self.log(f"Motor Imagery phase ({self.imagery_duration.get()} s)")
-            self.root.after(self.imagery_duration.get() * 1000, self.trial_loop)
+        self.marker_outlet.push_sample(['imagery'], timestamp=marker_timestamp)
+        if self.start_timestamp_lsl is not None:
+            relative_time = marker_timestamp - self.start_timestamp_lsl
+            self.markers.append(('imagery', marker_timestamp))
+            self.log(f"Marker 'imagery' sent at LSL timestamp: {marker_timestamp:.4f} (relative to start: {relative_time:.4f})")
         else:
-            self.update_cue("", "Rest")
-            self.marker_outlet.push_sample(['rest'], timestamp=marker_timestamp)
-            if self.start_timestamp_lsl is not None:
-                relative_time = marker_timestamp - self.start_timestamp_lsl
-                self.markers.append(('rest', marker_timestamp))
-                self.log(f"Marker 'rest' sent at LSL timestamp: {marker_timestamp:.4f} (relative to start: {relative_time:.4f})")
-            else:
-                self.markers.append(('rest', marker_timestamp))
-                self.log(f"Marker 'rest' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
-            self.log(f"Rest phase ({self.rest_duration.get()} s)")
-            self.root.after(self.rest_duration.get() * 1000, self.trial_loop)
+            self.markers.append(('imagery', marker_timestamp))
+            self.log(f"Marker 'imagery' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
+        self.log(f"Motor Imagery phase ({self.imagery_duration.get()} s)")
+        self.root.after(self.imagery_duration.get() * 1000, self.process_trial_phase)
+
+    def start_rest_phase(self):
+        self.update_cue("", "Rest")
+        marker_timestamp = local_clock()
+        self.marker_outlet.push_sample(['rest'], timestamp=marker_timestamp)
+        if self.start_timestamp_lsl is not None:
+            relative_time = marker_timestamp - self.start_timestamp_lsl
+            self.markers.append(('rest', marker_timestamp))
+            self.log(f"Marker 'rest' sent at LSL timestamp: {marker_timestamp:.4f} (relative to start: {relative_time:.4f})")
+        else:
+            self.markers.append(('rest', marker_timestamp))
+            self.log(f"Marker 'rest' sent at LSL timestamp: {marker_timestamp:.4f} (start time not available for relative time)")
+        self.log(f"Rest phase ({self.rest_duration.get()} s)")
+        self.root.after(self.rest_duration.get() * 1000, self.process_trial_phase)
 
     def record_loop(self):
         while self.running:
