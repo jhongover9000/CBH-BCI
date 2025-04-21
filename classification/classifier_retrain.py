@@ -35,7 +35,7 @@ shap_dir = "./shap/"
 ref_weight = 'ATC_NT.weights.h5'
 
 # Data Configurations
-data_version = 'v4'
+data_version = 'v6'
 data_type = 'xon'
 if(data_type == 'mit'):
     data_filename = f"mit_subject_data_{data_version}.npz"
@@ -55,7 +55,7 @@ print(f"New Data loaded. X shape: {X_new.shape}, y shape: {y_new.shape}, Subject
 # Training Configurations
 epochs = 90  # Fine-tuning for fewer epochs
 batch_size = 8
-learning_rate = 0.00001  # Lower LR for fine-tuning
+learning_rate = 0.0001  # Lower LR for fine-tuning
 nb_classes = 2
 weight_decay = 0.01
 

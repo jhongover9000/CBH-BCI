@@ -54,7 +54,7 @@ saved_weights_dir = "./saved_weights/"
 results_dir = "./results/"
 shap_dir = "./shap/"
 
-data_version = 'v3'
+data_version = 'v6'
 data_filename = f"xon_subject_data_{data_version}.npz"  # Specify your desired output file
 
 # Model Variables

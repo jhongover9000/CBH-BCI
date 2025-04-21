@@ -19,7 +19,7 @@ os.makedirs(save_dir, exist_ok=True)
 marker_names = ["imagery", "execution"]  # List of marker names to process
 
 # Data Version
-data_version = 'v5'
+data_version = 'v6'
 filename = f"xon_subject_data_{data_version}.npz"  # Specify your desired output file
 
 output_filename = os.path.join(save_dir, filename)
@@ -84,8 +84,8 @@ for fif_file in fif_files:
     # Optionally, mark 'Cz' as bad and interpolate it if present
     if 'Cz' in raw.ch_names:
         raw.info['bads'] = ['Cz']
-        raw.interpolate_bads(reset_bads=True)
-        # raw.drop_channels('Cz')
+        # raw.interpolate_bads(reset_bads=True)
+        raw.drop_channels('Cz')
 
     # Set common average reference if reference channels exist
     ref_channels = ["A1", "A2"]
