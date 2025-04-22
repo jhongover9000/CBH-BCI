@@ -1,0 +1,14 @@
+Timestamp: 20250421232644
+Model: ATCNet
+Data Type: bci (bci_subject_data_v1.npz)
+Number of Subjects Processed: 15
+Average Loss: 0.6992
+Average Accuracy: 76.17%
+
+Accumulated Confusion Matrix:
+[[442. 181.]
+ [114. 509.]]
+
+Accuracy Log File: ./results/20250421232644_accuracy_log_LOSO.csv
+Predictions File: ./results/20250421232644_predictions_LOSO.npz
+Misclassifications File: ./results/20250421232644_misclassifications_LOSO.json

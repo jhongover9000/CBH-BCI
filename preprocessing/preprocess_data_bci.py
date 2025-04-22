@@ -23,7 +23,7 @@ import warnings
 # DIRECTORIES & VARIABLES
 
 # Define the directory containing the .set files
-data_dir = "./data/rawdata/epoched_ml/"  # Update this with the correct directory path
+data_dir = "./data/rawdata/epoched_no_asr/"  # Update this with the correct directory path
 save_dir = "./data/"
 os.makedirs(save_dir, exist_ok=True)
 
@@ -32,7 +32,7 @@ file_pattern = "MIT{}_INT.set"
 num_subjects = 33 # Set to a smaller number (e.g., 1) for testing
 
 # Data Version
-data_version = 'v1' # Updated version
+data_version = 'v3' # Updated version
 
 # Bandpass Filter Range (Hz)
 f_low, f_high = 2, 49
@@ -54,12 +54,12 @@ new_freq = 250
 mi_event_marker = 'S  9' # ****** IMPORTANT: VERIFY THIS MARKER NAME ******
 
 # Time window for derived Rest epoch relative to MI onset (seconds)
-mi_tmin, mi_tmax = 0.25, 1.25
+mi_tmin, mi_tmax = 0.0, 1.0
 rest_tmin, rest_tmax = -1.25, -0.25 # E.g., 1 second ending at MI onset
 
 # Baseline correction periods relative to MI onset (seconds)
 # Assumes original epochs cover these time ranges relative to the MI onset
-baseline_mi = (0.0, 0.25)      # Baseline for MI: -0.5 seconds to MI onset (0s)
+baseline_mi = (-0.25, 0.0)      # Baseline for MI: -0.5 seconds to MI onset (0s)
 baseline_rest = (-1.5, -1.25) # Baseline for Rest: -1.5 seconds to -1.25 seconds relative to MI onset
 
 # ==================================================================================================
