@@ -40,7 +40,7 @@ from models.atcnet_new import ATCNet_
 # VARIABLES
 
 # Seeds
-SEED = 42
+SEED = 256
 tf.keras.utils.set_random_seed(SEED)
 np.random.seed(SEED)
 random.seed(SEED)
@@ -49,7 +49,7 @@ random.seed(SEED)
 model_choice = 'ATCNet'  # Change to 'EEGNet' if needed
 
 # SHAP Analysis Toggle
-shap_on = False  # Set to False if you don't need SHAP analysis
+shap_on = True  # Set to False if you don't need SHAP analysis
 
 # FIX TENSORFLOW MEMORY GROWTH (PARTIAL FIX)
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -199,7 +199,7 @@ for subj in unique_subject_list:
 n_splits = len(unique_subject_list)
 epochs = 70
 batch_size = 16
-learning_rate = 0.00005
+learning_rate = 0.0001
 nb_classes = len(np.unique(y))
 weight_decay = 0.01
 print(f"Number of classes: {nb_classes}")
@@ -412,12 +412,20 @@ for i in range(start_subject_index, len(unique_subject_list)):
 
     # --- SHAP Analysis (if enabled) ---
     if shap_on:
+
         print("Computing SHAP values...")
         try:
             # Patches...
             shap.explainers._deep.deep_tf.op_handlers["AddV2"] = shap.explainers._deep.deep_tf.passthrough
-            # ... add other necessary patches ...
-
+            shap.explainers._deep.deep_tf.op_handlers["FusedBatchNormV3"] = shap.explainers._deep.deep_tf.passthrough  # this solves the next problem which allows you to run the DeepExplainer.
+            shap.explainers._deep.deep_tf.op_handlers["FusedBatchNormV3"] = shap.explainers._deep.deep_tf.passthrough #this solves the next problem which allows you to run the DeepExplainer.  
+            shap.explainers._deep.deep_tf.op_handlers["DepthwiseConv2dNative"] = shap.explainers._deep.deep_tf.passthrough #this solves the next problem which allows you to run the DeepExplainer.  
+            shap.explainers._deep.deep_tf.op_handlers["BatchToSpaceND"] = shap.explainers._deep.deep_tf.passthrough #this solves the next problem which allows you to run the DeepExplainer.  
+            shap.explainers._deep.deep_tf.op_handlers["SpaceToBatchND"] = shap.explainers._deep.deep_tf.passthrough #this solves the next problem which allows you to run the DeepExplainer.  
+            shap.explainers._deep.deep_tf.op_handlers["Einsum"] = shap.explainers._deep.deep_tf.passthrough #this solves the next problem which allows you to run the DeepExplainer.  
+            shap.explainers._deep.deep_tf.op_handlers["BatchMatMulV2"] = shap.explainers._deep.deep_tf.passthrough #this solves the next problem which allows you to run the DeepExplainer.  
+            shap.explainers._deep.deep_tf.op_handlers["Neg"] = shap.explainers._deep.deep_tf.passthrough #this solves the next problem which allows you to run the DeepExplainer.  
+        
             num_background_samples = min(100, X_train.shape[0])
             background_indices = np.random.choice(X_train.shape[0], num_background_samples, replace=False)
             background = X_train[background_indices]
@@ -554,14 +562,12 @@ else:
 fully_completed = (last_processed_index == len(unique_subject_list) - 1)
 if fully_completed:
      print("\n***** LOSO process fully completed for all subjects. *****")
-     # Consider NOT deleting the progress file, as it records the timestamp of the last successful run.
-     # If you want to delete it:
-     # try:
-     #      if os.path.exists(progress_file):
-     #           os.remove(progress_file)
-     #           print(f"Removed progress tracker file: {progress_file}")
-     # except Exception as e:
-     #      print(f"Error removing progress tracker file: {e}")
+     try:
+          if os.path.exists(progress_file):
+               os.remove(progress_file)
+               print(f"Removed progress tracker file: {progress_file}")
+     except Exception as e:
+          print(f"Error removing progress tracker file: {e}")
 
 
 # ==================================================================================================
