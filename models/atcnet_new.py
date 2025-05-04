@@ -1,99 +1,68 @@
-import tensorflow as tf
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import (
-    Input, Conv2D, BatchNormalization, DepthwiseConv2D,
-    Activation, AveragePooling2D, Flatten, Dense, Dropout,
-    Permute, Lambda, Concatenate
-)
-from tensorflow.keras.regularizers import L2
-from models.models import Conv_block_, attention_block, TCN_block_
+from keras.models import Model
+from keras.layers import (Input, Conv2D, DepthwiseConv2D, AveragePooling2D, SeparableConv2D, 
+                          BatchNormalization, Activation, Dropout, Flatten, Dense, GlobalAveragePooling1D, 
+                          Concatenate, Lambda, Permute, Reshape)
+from keras.layers import GlobalAveragePooling2D, Softmax
+from keras import backend as K
+from models.attention_models import se_block, cbam_block, mha_block
+from models.models import TCN_block_
 
-def ATCNet_(n_classes, in_chans=22, in_samples=1125, n_windows=5, attention='mha', 
-           eegn_F1=16, eegn_D=2, eegn_kernelSize=64, eegn_poolSize=7, eegn_dropout=0.3, 
-           tcn_depth=2, tcn_kernelSize=4, tcn_filters=32, tcn_dropout=0.3, 
-           tcn_activation='elu', fuse='average'):
-    
-    """ ATCNet with Batch Normalization (BN) integrated """
 
-    input_1 = Input(shape=(1, in_chans, in_samples))
-    input_2 = Permute((3, 2, 1))(input_1)
+def ATCNet_(nb_classes, Chans=22, Samples=1000, dropoutRate=0.5,
+            kernLength=64, F1=8, D=2, F2=16, norm_rate=0.25,
+            dropoutType='Dropout', attention_type=None,
+            n_windows=5, fusion_type='average', from_logits=False):
 
-    dense_weightDecay = 0.5  
-    conv_weightDecay = 0.009
-    conv_maxNorm = 0.6
-    from_logits = False
+    input_main = Input(shape=(1, Chans, Samples))
+    block1 = Conv2D(F1, (1, kernLength), padding='same', use_bias=False)(input_main)
+    block1 = BatchNormalization()(block1)
+    block1 = DepthwiseConv2D((Chans, 1), use_bias=False, depth_multiplier=D,
+                              depthwise_constraint=None, padding='valid')(block1)
+    block1 = BatchNormalization()(block1)
+    block1 = Activation('elu')(block1)
+    block1 = AveragePooling2D((1, 4))(block1)
+    block1 = Dropout(dropoutRate)(block1)
 
-    numFilters = eegn_F1
-    F2 = numFilters * eegn_D
+    block2 = SeparableConv2D(F2, (1, 16), use_bias=False, padding='same')(block1)
+    block2 = BatchNormalization()(block2)
+    block2 = Activation('elu')(block2)
+    block2 = AveragePooling2D((1, 8))(block2)
+    block2 = Dropout(dropoutRate)(block2)
 
-    # EEGNet-style convolution block
-    block1 = Conv_block_(input_layer=input_2, F1=eegn_F1, D=eegn_D,
-                         kernLength=eegn_kernelSize, poolSize=eegn_poolSize,
-                         weightDecay=conv_weightDecay, maxNorm=conv_maxNorm,
-                         in_chans=in_chans, dropout=eegn_dropout)
-    
-    block1 = BatchNormalization()(block1)  # BN after Conv Block
-    block1 = Activation('relu')(block1)
+    # Reshape to (batch_size, time_steps, features)
+    reshaped = Reshape((block2.shape[-1], -1))(block2)
+    reshaped = Permute((2, 1))(reshaped)  # Now (batch, time, features)
 
-    block1 = Lambda(lambda x: x[:, :, -1, :], output_shape=(block1.shape[1], block1.shape[-1]))(block1)  # Ensure valid shape
-
-    # **Fix: Ensure time dimension is large enough**
-    time_dim = block1.shape[1]
-    if time_dim < n_windows:
-        print(f"Warning: Time dimension ({time_dim}) is smaller than n_windows ({n_windows}). Adjusting...")
-        n_windows = max(1, time_dim)  # Set n_windows to a valid value
-
-    # Sliding window mechanism
-    sw_concat = []
+    # Create temporal windows
+    step = reshaped.shape[1] // n_windows
+    window_outputs = []
     for i in range(n_windows):
-        st = i
-        end = min(time_dim, i + (time_dim // n_windows))  # Ensure valid index
+        st = i * step
+        end = (i + 1) * step if i < n_windows - 1 else reshaped.shape[1]
+        window = Lambda(lambda x, s=st, e=end: x[:, s:e, :])(reshaped)
 
-        if end <= st:  # Prevent invalid range
-            print(f"Skipping window {i} due to invalid range: start={st}, end={end}")
-            continue
+        # Attention block (optional)
+        if attention_type == 'se':
+            window = se_block(window)
+        elif attention_type == 'cbam':
+            window = cbam_block(window)
+        elif attention_type == 'mha':
+            window = mha_block(window)
 
-        block2 = block1[:, st:end, :]
+        # TCN block
+        window = TCN_block_(window)
+        window_outputs.append(window)
 
-        # Attention mechanism
-        if attention is not None:
-            if attention in ['se', 'cbam']:
-                block2 = Permute((2, 1))(block2)
-                block2 = attention_block(block2, attention)
-                block2 = Permute((2, 1))(block2)
-            else:
-                block2 = attention_block(block2, attention)
+    # Fusion of window outputs
+    if fusion_type == 'average':
+        sw_concat = Lambda(lambda x: K.mean(K.stack(x, axis=1), axis=1))(window_outputs)
+    elif fusion_type == 'concat':
+        sw_concat = Concatenate(axis=-1)(window_outputs)
+    else:
+        raise ValueError("fusion_type must be 'average' or 'concat'")
 
-        block2 = BatchNormalization()(block2)  # BN before TCN
+    # Final dense output
+    out = Dense(nb_classes)(sw_concat)
+    out = Activation('linear' if from_logits else 'softmax', name='output')(out)
 
-        # Temporal Convolutional Network (TCN)
-        block3 = TCN_block_(input_layer=block2, input_dimension=F2, depth=tcn_depth,
-                            kernel_size=tcn_kernelSize, filters=tcn_filters, 
-                            weightDecay=conv_weightDecay, maxNorm=conv_maxNorm,
-                            dropout=tcn_dropout, activation=tcn_activation)
-        
-        block3 = BatchNormalization()(block3)  # BN in TCN
-        block3 = Lambda(lambda x: x[:, -1, :], output_shape=(block3.shape[-1],))(block3)  # Fix shape extraction
-
-        # Fuse sliding window outputs
-        if fuse == 'average':
-            sw_concat.append(Dense(n_classes, kernel_regularizer=L2(dense_weightDecay))(block3))
-        elif fuse == 'concat':
-            sw_concat = Concatenate()([sw_concat, block3]) if i != 0 else block3
-
-    # **Fix: Ensure sw_concat is not empty**
-    if len(sw_concat) == 0:
-        raise ValueError(f"Sliding window failed: No valid windows in the input sequence. Time dim: {time_dim}, n_windows: {n_windows}")
-
-    # Output layer
-    if fuse == 'average':
-        if len(sw_concat) > 1:
-            sw_concat = tf.keras.layers.Average()(sw_concat[:])
-        else:
-            sw_concat = sw_concat[0]
-    elif fuse == 'concat':
-        sw_concat = Dense(n_classes, kernel_regularizer=L2(dense_weightDecay))(sw_concat)
-
-    out = Activation('linear' if from_logits else 'sigmoid', name='output')(sw_concat)
-
-    return Model(inputs=input_1, outputs=out)
+    return Model(inputs=input_main, outputs=out)

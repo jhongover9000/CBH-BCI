@@ -36,6 +36,8 @@ import json # Needed for progress tracker
 from models.EEGModels import EEGNet
 from models.atcnet_new import ATCNet_
 
+# from models.models import ATCNet_
+
 # ==================================================================================================
 # VARIABLES
 
@@ -141,7 +143,7 @@ misclassification_file = os.path.join(results_dir, f"{timestamp}_misclassificati
 # --- Data Configurations ---
 # (Keep this section as is)
 data_type = 'bci'
-data_version = 'v3'
+data_version = 'v5'
 if(data_type == 'mit'):
     data_filename = f"mit_subject_data_{data_version}.npz"
     weight_name = "ST"
@@ -199,7 +201,7 @@ for subj in unique_subject_list:
 n_splits = len(unique_subject_list)
 epochs = 70
 batch_size = 16
-learning_rate = 0.0001
+learning_rate = 0.00005
 nb_classes = len(np.unique(y))
 weight_decay = 0.01
 print(f"Number of classes: {nb_classes}")

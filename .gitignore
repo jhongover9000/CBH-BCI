@@ -3,3 +3,4 @@
 epoched/STvsRest.mat
 /models/__pycache__
 .DS_Store
+*.pkl

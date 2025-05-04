@@ -90,6 +90,7 @@ def ATCNet_(n_classes, in_chans = 22, in_samples = 1125, n_windows = 5, attentio
                             kernel_size = tcn_kernelSize, filters = tcn_filters, 
                             weightDecay = conv_weightDecay, maxNorm = conv_maxNorm,
                             dropout = tcn_dropout, activation = tcn_activation)
+        print("block3 shape before slicing:", block3.shape)
         # Get feature maps of the last sequence
         block3 = Lambda(lambda x: x[:,-1,:])(block3)
         
