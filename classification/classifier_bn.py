@@ -143,7 +143,7 @@ misclassification_file = os.path.join(results_dir, f"{timestamp}_misclassificati
 # --- Data Configurations ---
 # (Keep this section as is)
 data_type = 'bci'
-data_version = 'v5'
+data_version = 'v4'
 if(data_type == 'mit'):
     data_filename = f"mit_subject_data_{data_version}.npz"
     weight_name = "ST"
