@@ -26,8 +26,9 @@ from tensorflow.keras.layers import Add, Concatenate, Lambda, Input, Permute
 from tensorflow.keras.regularizers import L2
 from tensorflow.keras.constraints import max_norm
 from keras import ops
+from keras.layers import Lambda
 
-from tensorflow.keras import backend as K
+from keras import backend as K
 
 from models.attention_models import attention_block
 
@@ -92,7 +93,7 @@ def ATCNet_(n_classes, in_chans = 22, in_samples = 1125, n_windows = 5, attentio
                             dropout = tcn_dropout, activation = tcn_activation)
         print("block3 shape before slicing:", block3.shape)
         # Get feature maps of the last sequence
-        block3 = Lambda(lambda x: x[:,-1,:])(block3)
+        block3 = Lambda(lambda x: x[:, -1, :], output_shape=lambda input_shape: (input_shape[0], input_shape[2]))(block3)
         
         # Outputs of sliding window: Average_after_dense or concatenate_then_dense
         if(fuse == 'average'):
