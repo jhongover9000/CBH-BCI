@@ -1,0 +1,22 @@
+
+### Subject Data NT
+'Fp1' 'Fp2' 'F3' 'F4' 'C3' 'C4' 'P3' 'P4' 'O1' 'O2' 'A1' 'A2' 'F7' 'F8' 'T3' 'T4' 'T5' 'T6' 'Fz' 'Cz' 'Pz' 'X5'
+v1 - split data half and half
+v2 - split data, applied CAR and BPF (7-30) before saving as npy data
+v3 - split data, chose 7 channels, CAR and BPF (7,30)
+v4 - split data, chose 7 channels (X.on), CAR and BPF (2,49)
+v5 - split data, applied CAR and BPF (2-49) before saving as npy data
+v6 - split data and reference using A1, A2. removed X5.
+
+### Subject Data ST
+
+### Subject Data X.on
+v1 - dropped Cz channel, BPF (2-49), CAR
+
+### Subject Data BCI
+v1 - MI [0.0 1.0], Rest [-1.25, -0.25], ASR, BPF, Notch, bs 250ms
+v2 - MI [0.25 1.25], Rest [-1.25, -0.25], ASR, BPF, Notch, bs 250ms
+v4 - MI [0.5 1.5], Rest [-1.25, -0.25], no ASR, BPF, Notch, bs 250ms
+v5 - MI [0.25 1.25], Rest [-1.25, -0.25], no ASR, BPF, Notch, bs 250ms [-0.25 0]
+v6 - MI [0.25 1.25], Rest [-1.25, -0.25], no ASR, BPF (8,40), Notch, bs 250ms
+v7 - MI [0.0 1.0], Rest [-1.25, -0.25], no ASR, BPF (8,40), Notch, bs 250ms

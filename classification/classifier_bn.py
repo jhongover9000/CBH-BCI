@@ -143,7 +143,7 @@ misclassification_file = os.path.join(results_dir, f"{timestamp}_misclassificati
 # --- Data Configurations ---
 # (Keep this section as is)
 data_type = 'bci'
-data_version = 'v4'
+data_version = 'v6'
 if(data_type == 'mit'):
     data_filename = f"mit_subject_data_{data_version}.npz"
     weight_name = "ST"
@@ -348,7 +348,7 @@ for i in range(start_subject_index, len(unique_subject_list)):
     # Use the loaded/generated timestamp in the checkpoint filename
     model_checkpoint_path = os.path.join(saved_weights_dir, f"{timestamp}_best_model_subject_{subject}.weights.h5")
     callbacks = [
-        EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1),
+        # EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1),
         ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0.00001, verbose=1),
         ModelCheckpoint(model_checkpoint_path, monitor='val_loss', save_best_only=True, save_weights_only=True, verbose=0)
     ]
@@ -428,9 +428,13 @@ for i in range(start_subject_index, len(unique_subject_list)):
             shap.explainers._deep.deep_tf.op_handlers["BatchMatMulV2"] = shap.explainers._deep.deep_tf.passthrough #this solves the next problem which allows you to run the DeepExplainer.  
             shap.explainers._deep.deep_tf.op_handlers["Neg"] = shap.explainers._deep.deep_tf.passthrough #this solves the next problem which allows you to run the DeepExplainer.  
         
-            num_background_samples = min(100, X_train.shape[0])
-            background_indices = np.random.choice(X_train.shape[0], num_background_samples, replace=False)
-            background = X_train[background_indices]
+            # num_background_samples = min(300, X_train.shape[0])
+            # background_indices = np.random.choice(X_train.shape[0], num_background_samples, replace=False)
+            # background = X_train[background_indices]
+
+            # Set up 300 random points for shap
+            background = np.array(X_train[np.random.choice(X_train.shape[0], 300, replace=False)])
+            print(np.shape(X_test))
 
             e = shap.DeepExplainer(model, background)
             shap_values = e.shap_values(X_test, check_additivity=False)

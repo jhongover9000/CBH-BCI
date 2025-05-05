@@ -32,10 +32,10 @@ file_pattern = "MIT{}_INT.set"
 num_subjects = 33 # Set to a smaller number (e.g., 1) for testing
 
 # Data Version
-data_version = 'v5' # Updated version
+data_version = 'v7' # Updated version
 
 # Bandpass Filter Range (Hz)
-f_low, f_high = 2, 49
+f_low, f_high = 8, 40
 
 # Remove Specific Channels (Set one to False if using the other)
 drop_chan = True
@@ -54,7 +54,7 @@ new_freq = 250
 mi_event_marker = 'S  9' # ****** IMPORTANT: VERIFY THIS MARKER NAME ******
 
 # Time window for derived Rest epoch relative to MI onset (seconds)
-mi_tmin, mi_tmax = 0.25, 1.25
+mi_tmin, mi_tmax = 0.0, 1.0
 rest_tmin, rest_tmax = -1.25, -0.25 # E.g., 1 second ending at MI onset
 
 # Baseline correction periods relative to MI onset (seconds)

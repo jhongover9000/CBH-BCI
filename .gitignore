@@ -1,6 +1,10 @@
 /shap
-/data
+/data/rawdata/*
+/data/*.npz
 epoched/STvsRest.mat
 /models/__pycache__
 .DS_Store
 *.pkl
+/*__pycache__/*
+*cpython-39.pyc
+/classification/__pycache__
