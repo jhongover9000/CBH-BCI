@@ -1,0 +1,19 @@
+Timestamp: 20250505001646
+Model: ATCNet
+Data Type: bci (bci_subject_data_v4.npz)
+Number of Subjects Processed in this run: 31
+Number of Subjects in Accuracy Log: 31
+Average Loss (from log): 0.8131
+Average Accuracy (from log): 73.35%
+
+Accumulated Confusion Matrix (based on processed subjects):
+[[ 888  429]
+ [ 269 1048]]
+
+--- Output Files ---
+Accuracy Log File: ./results/20250505001646_accuracy_log_LOSO.csv
+Predictions & Individual CMs File: ./results/20250505001646_predictions_LOSO.npz
+Misclassifications File: ./results/20250505001646_misclassifications_LOSO.json
+SHAP Values Directory: ./shap/20250505001646_subject_shap_values
+
+Note: Individual subject confusion matrices are stored within the predictions NPZ file.
