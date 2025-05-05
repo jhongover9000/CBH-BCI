@@ -42,7 +42,7 @@ from models.atcnet_new import ATCNet_
 # VARIABLES
 
 # Seeds
-SEED = 256
+SEED = 9070
 tf.keras.utils.set_random_seed(SEED)
 np.random.seed(SEED)
 random.seed(SEED)
@@ -77,6 +77,24 @@ os.makedirs(saved_weights_dir, exist_ok=True)
 os.makedirs(results_dir, exist_ok=True)
 os.makedirs(shap_dir, exist_ok=True)
 
+# ==================================================================================================
+# DEFINE FILENAMES (USING THE DETERMINED TIMESTAMP)
+
+# --- Data Configurations ---
+data_type = 'bci'
+data_version = 'v8'
+if(data_type == 'mit'):
+    data_filename = f"mit_subject_data_{data_version}.npz"
+    weight_name = "ST"
+elif (data_type == 'xon'):
+    data_filename = f"xon_subject_data_{data_version}.npz"
+    weight_name = "XON"
+elif (data_type == 'bci'):
+    data_filename = f"bci_subject_data_{data_version}.npz"
+    weight_name = "BCI"
+else:
+    data_filename = f"subject_data_{data_version}.npz"
+    weight_name = "NT"
 
 # ==================================================================================================
 # LOAD/MANAGE RUN STATE (Timestamp & Progress)
@@ -125,10 +143,6 @@ except Exception as e:
      print("Exiting to prevent inconsistent state.")
      exit()
 
-
-# ==================================================================================================
-# DEFINE FILENAMES (USING THE DETERMINED TIMESTAMP)
-
 # --- Create Timestamped Subdirectories if needed (and if shap is on) ---
 if shap_on:
     # Use the loaded/generated timestamp for the directory name
@@ -139,23 +153,6 @@ if shap_on:
 accuracy_log_file = os.path.join(results_dir, f"{timestamp}_accuracy_log_LOSO.csv")
 predictions_file = os.path.join(results_dir, f"{timestamp}_predictions_LOSO.npz")
 misclassification_file = os.path.join(results_dir, f"{timestamp}_misclassifications_LOSO.json")
-
-# --- Data Configurations ---
-# (Keep this section as is)
-data_type = 'bci'
-data_version = 'v6'
-if(data_type == 'mit'):
-    data_filename = f"mit_subject_data_{data_version}.npz"
-    weight_name = "ST"
-elif (data_type == 'xon'):
-    data_filename = f"xon_subject_data_{data_version}.npz"
-    weight_name = "XON"
-elif (data_type == 'bci'):
-    data_filename = f"bci_subject_data_{data_version}.npz"
-    weight_name = "BCI"
-else:
-    data_filename = f"subject_data_{data_version}.npz"
-    weight_name = "NT"
 
 
 # ==================================================================================================

@@ -20,3 +20,4 @@ v4 - MI [0.5 1.5], Rest [-1.25, -0.25], no ASR, BPF, Notch, bs 250ms
 v5 - MI [0.25 1.25], Rest [-1.25, -0.25], no ASR, BPF, Notch, bs 250ms [-0.25 0]
 v6 - MI [0.25 1.25], Rest [-1.25, -0.25], no ASR, BPF (8,40), Notch, bs 250ms
 v7 - MI [0.0 1.0], Rest [-1.25, -0.25], no ASR, BPF (8,40), Notch, bs 250ms
+v8 - MI [0.0 1.0], Rest [-1.25, -0.25], no ASR, BPF (8,40), Notch, bs 250ms
