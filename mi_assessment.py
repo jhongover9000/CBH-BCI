@@ -26,16 +26,31 @@ class EEGMarkerGUI:
         self.root.geometry("550x950")
         self.root.minsize(600, 600)
 
+        # Marker Values (CHECK!!)
+        self.session_start = 0
+        self.blank = 1
+        self.baseline = 2
+        self.motor_execution = 3
+        self.motor_imagery = 4
+        self.rest = 5
+        self.eval_start = 7
+        self.eval_yes = 8
+        self.eval_no = 9
+        self.session_end = 10
+
         # Adjustable durations (in seconds)
-        self.blank1_duration = tk.IntVar(value=1)      # Pre-trial blank (Block 1 or 2)
-        self.baseline1_duration = tk.IntVar(value=3)     # First baseline (Block 1 or 2)
+        self.blank1_duration = tk.IntVar(value=0)      # Pre-trial blank (Block 1 or 2)
+        self.baseline1_duration = tk.IntVar(value=0)     # First baseline (Block 1 or 2)
         self.motor_duration = tk.IntVar(value=2)         # Motor execution (Block 1 if enabled)
-        self.blank2_duration = tk.IntVar(value=1)        # Blank between blocks
-        self.baseline2_duration = tk.IntVar(value=4)     # Second baseline (Block 2)
+        self.blank2_duration = tk.IntVar(value=0)        # Blank between blocks
+        self.baseline2_duration = tk.IntVar(value=5)     # Second baseline (Block 2)
         self.imagery_duration = tk.IntVar(value=2)       # Motor imagery (Activity Block)
         self.rest_duration = tk.IntVar(value=2)          # Rest (Activity Block)
 
         self.total_trials = tk.IntVar(value=10)
+
+        # Minimum baseline duration (in seconds) for randomization
+        self.min_baseline_duration = 3
 
         # Activity selection checkboxes
         self.select_motor_exec = tk.BooleanVar(value=False)
@@ -49,7 +64,7 @@ class EEGMarkerGUI:
         self.com_port = tk.StringVar(value="")
         self.available_ports = []
         self.serial_connection = None
-        self.baud_rate = tk.IntVar(value=9600)
+        self.baud_rate = tk.IntVar(value=2000000)
 
         # --- NEW: Monitor Selection Variables ---
         self.available_monitors = []
@@ -60,8 +75,7 @@ class EEGMarkerGUI:
         self.markers = []
         self.recording_start_time = None # Wall clock time when recording started
 
-        # Minimum baseline duration (in seconds) for randomization
-        self.min_baseline_duration = 2.5
+        
 
         # --- Sequences for balanced randomization ---
         self.trial_activity_sequence = [] # Holds 'imagery' or 'rest' for each trial if balanced
@@ -121,7 +135,7 @@ class EEGMarkerGUI:
         self.dynamic_labels.append(lbl_baud)
         
         baud_dropdown = ttk.Combobox(baud_frame, textvariable=self.baud_rate, state="readonly", width=10,
-                                    values=[9600, 19200, 38400, 57600, 115200])
+                                    values=[9600, 19200, 38400, 57600, 115200, 2000000])
         baud_dropdown.pack(side="left")
 
         # --- NEW: Monitor Selection ---
@@ -146,7 +160,7 @@ class EEGMarkerGUI:
         # --- Separator ---
         separator = ttk.Separator(scrollable_frame, orient="horizontal")
         separator.grid(row=row_idx, column=0, sticky="ew", pady=10); row_idx += 1
-        '''
+
         # Pre-trial Blank Duration (Used before the FIRST block)
         lbl_blank1 = tk.Label(scrollable_frame, text="Pre-Block Blank Duration (s)")
         lbl_blank1.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
@@ -183,7 +197,6 @@ class EEGMarkerGUI:
         cb_motor.grid(row=row_idx, column=0, sticky="w"); row_idx += 1
         self.dynamic_buttons.append(cb_motor)
 
-        '''
 
         # --- Inter-Block Blank Duration ---
         lbl_blank2 = tk.Label(scrollable_frame, text="Inter-Block Blank Duration (s)")
@@ -272,6 +285,9 @@ class EEGMarkerGUI:
         self.stop_button = tk.Button(scrollable_frame, text="Stop Session", command=self.stop_session, state="disabled")
         self.stop_button.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
         self.dynamic_buttons.append(self.stop_button)
+
+    def to_hex(self, value):
+        return str(hex(value))
 
     def update_label(self, label_widget, val):
         # Ensure minimum value for baseline scales is respected in label
@@ -468,7 +484,7 @@ class EEGMarkerGUI:
                 return
             
             # Send the marker as a string followed by newline
-            marker_str = f"{marker_label}\n"
+            marker_str = f"{marker_label}"
             self.serial_connection.write(marker_str.encode('utf-8'))
             
             # Store the marker with timestamp
@@ -612,7 +628,7 @@ class EEGMarkerGUI:
         # Start the session
         self.recording_start_time = time.time() # Wall clock start time
         self.log(f"Session started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        self.send_marker("session_start") # Mark session start
+        self.send_marker(self.to_hex(self.session_start)) # Mark session start
 
         # Start the first trial after a short delay
         self.root.after(500, self.start_trial)
@@ -622,7 +638,7 @@ class EEGMarkerGUI:
             return
         self.running = False
         self.log("Stopping session...")
-        self.send_marker("session_end") # Mark session end
+        self.send_marker(self.to_hex(self.session_end)) # Mark session end
 
         # Close the serial connection
         if self.serial_connection and self.serial_connection.is_open:
@@ -699,14 +715,14 @@ class EEGMarkerGUI:
         duration = self.blank1_duration.get() if is_first_block else self.blank2_duration.get()
         marker = 'blank_pre' if is_first_block else 'blank_inter'
         self.update_cue("", "Blank")
-        self.send_marker(marker)
+        self.send_marker(self.to_hex(self.blank))
         self.log(f"Phase: {marker} ({duration} s)")
         self.root.after(duration * 1000, getattr(self, f'start_{next_phase}_phase')) # Calls start_baseline1_phase or start_baseline2_phase
 
     def start_baseline1_phase(self):
         """Handles the baseline period BEFORE the FIRST activity/execution block."""
         self.update_cue("+", "Baseline")
-        self.send_marker('baseline_1')
+        self.send_marker(self.to_hex(self.baseline))
 
         # Use max duration from slider, randomize between min and max
         max_duration = self.baseline1_duration.get()
@@ -725,7 +741,7 @@ class EEGMarkerGUI:
     def start_baseline2_phase(self):
         """Handles the baseline period BEFORE the SECOND activity/execution block."""
         self.update_cue("+", "Baseline")
-        self.send_marker('baseline_2')
+        self.send_marker(self.to_hex(self.baseline))
 
         # Use max duration from slider, randomize between min and max
         max_duration = self.baseline2_duration.get()
@@ -756,7 +772,7 @@ class EEGMarkerGUI:
              return
 
         self.update_cue("M", "Motor Execution")
-        self.send_marker('execution_start')
+        self.send_marker(self.to_hex(self.motor_execution))
         duration = self.motor_duration.get()
         self.log(f"Phase: Motor Execution ({duration} s)")
 
@@ -764,8 +780,8 @@ class EEGMarkerGUI:
         self.root.after(duration * 1000, self.end_motor_execution_phase, is_first_block)
 
     def end_motor_execution_phase(self, is_first_block):
-        """Sends end marker and transitions from motor execution."""
-        self.send_marker('execution_end')
+        """Transitions from motor execution."""
+        # self.send_marker('execution_end')
         if is_first_block:
             # Finished first block, move to inter-block blank/baseline
              self.start_blank_phase(is_first_block=False, next_phase='baseline2')
@@ -786,7 +802,10 @@ class EEGMarkerGUI:
 
         # Get the activity for the current trial from the pre-shuffled list
         activity = self.trial_activity_sequence[self.current_trial - 1]
-        marker_start = f"{activity}_start"
+        if(activity == 'imagery'):
+            marker_start = self.to_hex(self.motor_imagery)
+        elif (activity == 'rest'):
+            marker_start = self.to_hex(self.rest)
 
         if activity == 'imagery':
             self.update_cue("•", "Motor Imagery")
@@ -802,9 +821,7 @@ class EEGMarkerGUI:
 
 
     def end_activity_phase(self, is_first_block, activity_type):
-        """Sends end marker and transitions from activity phase."""
-        marker_end = f"{activity_type}_end"
-        self.send_marker(marker_end)
+        """Transitions from activity phase."""
         if is_first_block:
             # Finished first block, move to inter-block blank/baseline
             self.start_blank_phase(is_first_block=False, next_phase='baseline2')

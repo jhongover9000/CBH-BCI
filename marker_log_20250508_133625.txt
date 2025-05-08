@@ -1,0 +1,27 @@
+Session Marker Log - 2025-05-08 13:36:25
+==================================================
+
+Relative Time (s) | Marker
+--------------------------------------------------
+         0.0010 | session_start
+         0.5060 | blank_pre
+         1.5111 | baseline_1
+         4.4728 | imagery_start
+         6.4791 | imagery_end
+         6.4832 | blank_inter
+         7.4882 | baseline_2
+        10.4712 | blank_pre
+        11.4755 | baseline_1
+        14.4636 | imagery_start
+        16.4785 | imagery_end
+        16.4821 | blank_inter
+        17.4996 | baseline_2
+        20.8251 | blank_pre
+        21.8391 | baseline_1
+        24.7439 | rest_start
+        26.7512 | rest_end
+        26.7558 | blank_inter
+        27.7606 | baseline_2
+        31.5712 | blank_pre
+        32.5770 | baseline_1
+        33.5608 | session_end
