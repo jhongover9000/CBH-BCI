@@ -1,17 +1,23 @@
 """
-SHAP Electrode Importance Analysis with Channel Names
+SHAP Electrode Importance Analysis with Channel Names - Enhanced Version
 
 Description:
   Loads consolidated results (including SHAP values) from a specific LOSO run,
   incorporates electrode names from a .mat reference file, and calculates the
   overall importance of each electrode/channel based on mean absolute SHAP values
-  aggregated across time, trials, and subjects.
+  aggregated across time, trials, and subjects. Includes options for scaling, 
+  outlier handling, and different aggregation methods.
 
 Usage:
-  python analyze_shap_importance.py <timestamp> [--target_class <int>] [--top_n <int>] [--mat_var <var_name>]
+  python analyze_shap_importance.py <timestamp> [--target_class <int>] [--top_n <int>] 
+                                   [--mat_var <var_name>] [--scaling <method>]
+                                   [--aggregation <method>] [--outlier_handling <method>]
+                                   [--outlier_threshold <float>]
 
 Example:
-  python analyze_shap_importance.py 20250423153000 --target_class 1 --top_n 10 --mat_var channel_names
+  python analyze_shap_importance.py 20250423153000 --target_class 1 --top_n 10 
+                                   --mat_var channel_names --scaling z_score 
+                                   --aggregation median --outlier_handling cap
 
 Input Files (relative to script location):
   - results/<timestamp>_consolidated_results.pkl
@@ -21,6 +27,7 @@ Output:
   - Prints the top N important electrodes with names (if available).
   - Saves a bar plot: results/<timestamp>_electrode_importance.png (with names)
   - Saves numerical scores: results/<timestamp>_electrode_importance_scores.csv (with names)
+  - Saves variability plot: results/<timestamp>_electrode_variability.png
 """
 
 import os
@@ -97,17 +104,104 @@ def load_channel_names_from_mat(base_dir, mat_var_name):
         return None
 
 
-# --- calculate_electrode_importance function remains the same as the previous version ---
-# (It correctly returns overall_channel_importance, num_channels or None)
-def calculate_electrode_importance(consolidated_data, target_class_index):
+def handle_outliers(importance_array, method='cap', threshold=3):
     """
-    Calculates electrode importance by aggregating SHAP values.
-    Handles SHAP values stored as a list of arrays or a single array
-    with classes in the last dimension.
-
+    Handles outliers in importance scores.
+    
+    Args:
+        importance_array: Array of importance scores
+        method: Method to handle outliers ('cap', 'remove')
+        threshold: Z-score threshold to identify outliers
+    
     Returns:
-        tuple(np.ndarray, int): (Array of importance scores, num_channels)
-                                 Returns None if calculation fails.
+        Modified array with outliers handled
+    """
+    mean_val = np.mean(importance_array)
+    std_val = np.std(importance_array)
+    
+    if std_val == 0:
+        return importance_array
+    
+    z_scores = np.abs((importance_array - mean_val) / std_val)
+    outliers = z_scores > threshold
+    
+    if np.sum(outliers) == 0:
+        return importance_array
+    
+    result = importance_array.copy()
+    
+    if method == 'cap':
+        # Cap outliers at the threshold value
+        cap_values = mean_val + threshold * std_val * np.sign(importance_array[outliers] - mean_val)
+        result[outliers] = cap_values
+    elif method == 'remove':
+        # Replace with mean (or could use median)
+        result[outliers] = mean_val
+    
+    return result
+
+
+def scale_subject_data(subject_data, method='z_score'):
+    """
+    Scales subject data using the specified method.
+    
+    Args:
+        subject_data: Array of subject importance scores
+        method: Scaling method ('none', 'z_score', 'minmax', 'robust')
+    
+    Returns:
+        Scaled data
+    """
+    if method == 'none':
+        return subject_data
+    
+    elif method == 'z_score':
+        # Z-score normalization (subtract mean, divide by std)
+        mean_val = np.mean(subject_data)
+        std_val = np.std(subject_data)
+        if std_val > 0:  # Avoid division by zero
+            return (subject_data - mean_val) / std_val
+        else:
+            print(" - Warning: Data has zero standard deviation. Using unscaled values.")
+            return subject_data
+    
+    elif method == 'minmax':
+        # Min-max scaling to [0,1] range
+        min_val = np.min(subject_data)
+        max_val = np.max(subject_data)
+        if max_val > min_val:  # Avoid division by zero
+            return (subject_data - min_val) / (max_val - min_val)
+        else:
+            print(" - Warning: Data has constant values. Using unscaled values.")
+            return subject_data
+    
+    elif method == 'robust':
+        # Robust scaling using percentiles
+        q25 = np.percentile(subject_data, 25)
+        q75 = np.percentile(subject_data, 75)
+        iqr = q75 - q25
+        if iqr > 0:  # Avoid division by zero
+            return (subject_data - q25) / iqr
+        else:
+            print(" - Warning: Data has zero IQR. Using unscaled values.")
+            return subject_data
+    
+    # Default: return unscaled
+    return subject_data
+
+
+def calculate_electrode_importance(consolidated_data, target_class_index, scaling_method='z_score'):
+    """
+    Calculates electrode importance by aggregating SHAP values with scaling to account for outliers.
+    
+    Args:
+        consolidated_data: Dictionary of subject data
+        target_class_index: Index of the target class
+        scaling_method: Method to scale subject data ('none', 'z_score', 'robust', 'minmax')
+    
+    Returns:
+        tuple(np.ndarray, int, list): (Array of importance scores, num_channels, list of subject importances)
+                                     Returns None if calculation fails.
     """
     subject_importance_list = []
     num_channels = None
@@ -115,7 +209,7 @@ def calculate_electrode_importance(consolidated_data, target_class_index):
     # Infer number of classes from the first valid SHAP array if possible
     nb_classes_inferred = None
 
-    print(f"\nCalculating importance based on SHAP values for class {target_class_index}...")
+    print(f"\nCalculating importance based on SHAP values for class {target_class_index} with scaling: {scaling_method}...")
 
     for subject_id, subject_data in consolidated_data.items():
         shap_values = subject_data.get('shap_values')
@@ -222,29 +316,24 @@ def calculate_electrode_importance(consolidated_data, target_class_index):
              print(f" - Skipping Subject {subject_id}: Unexpected shape after trial aggregation and squeeze ({subject_mean_abs_shap_per_channel.shape}). Expected ({num_channels},).")
              continue
 
+        # Apply scaling to this subject's importance scores
+        subject_mean_abs_shap_per_channel = scale_subject_data(subject_mean_abs_shap_per_channel, scaling_method)
+
         subject_importance_list.append(subject_mean_abs_shap_per_channel)
         processed_subjects_count += 1
+        print(f" - Successfully processed Subject {subject_id}")
 
     if not subject_importance_list:
         print("\nError: No valid SHAP data could be processed for any subject after checks. Cannot calculate overall importance.")
         return None
 
     print(f"\nAggregating importance across {processed_subjects_count} successfully processed subjects...")
-    try:
-        overall_channel_importance = np.mean(np.array(subject_importance_list), axis=0)
-    except Exception as e:
-         print(f"Error during final aggregation across subjects: {e}")
-         return None
 
-    if overall_channel_importance.shape != (num_channels,):
-         print(f"Error: Final aggregated importance has unexpected shape {overall_channel_importance.shape}. Expected ({num_channels},).")
-         return None
-
-    print("Aggregation complete.")
-    return overall_channel_importance, num_channels
+    # Return the list of processed subject importances along with other info
+    # We'll use this list in main() to perform the aggregation with the chosen method
+    return subject_importance_list, num_channels
 
 
-# --- Modify plot_importance to accept names ---
 def plot_importance(scores, num_channels, channel_names, timestamp, output_dir):
     """
     Generates and saves a bar plot of electrode importance.
@@ -286,7 +375,7 @@ def plot_importance(scores, num_channels, channel_names, timestamp, output_dir):
     except Exception as e:
         print(f"Error generating plot: {e}")
 
-# --- Modify save_scores to accept names ---
+
 def save_scores(scores, num_channels, channel_names, timestamp, output_dir):
      """Saves the numerical importance scores to a CSV file, including names if available."""
      if scores is None or num_channels is None:
@@ -321,9 +410,79 @@ def save_scores(scores, num_channels, channel_names, timestamp, output_dir):
           print(f"Error saving scores: {e}")
 
 
-def main(run_timestamp, target_class_index, top_n, mat_var_name):
-    """Main function to perform SHAP analysis."""
+def plot_subject_variability(subject_importance_list, channel_names, num_channels, timestamp, output_dir):
+    """
+    Generates a plot showing the variability of importance scores across subjects.
+    """
+    if not subject_importance_list:
+        print("Skipping subject variability plotting due to missing data.")
+        return
+
+    output_filename = os.path.join(output_dir, f"{timestamp}_electrode_variability.png")
+    print(f"\nGenerating subject variability plot: {output_filename}")
+    
+    # Convert to numpy array
+    subject_data = np.array(subject_importance_list)
+    num_subjects = subject_data.shape[0]
+    
+    # Calculate statistics
+    mean_scores = np.mean(subject_data, axis=0)
+    std_scores = np.std(subject_data, axis=0)
+    
+    # Sort by mean importance
+    sorted_indices = np.argsort(mean_scores)[::-1]
+    
+    # Get top 10 channels for visualization
+    top_n = min(10, num_channels)
+    top_indices = sorted_indices[:top_n]
+    
+    # Use names if available
+    if channel_names is not None and len(channel_names) == num_channels:
+        labels = [channel_names[i] for i in top_indices]
+    else:
+        labels = [f"Channel {i}" for i in top_indices]
+    
+    try:
+        # Create plot
+        plt.figure(figsize=(12, 7))
+        x = np.arange(top_n)
+        width = 0.8
+        
+        plt.bar(x, mean_scores[top_indices], width, yerr=std_scores[top_indices], 
+                align='center', alpha=0.7, capsize=10)
+        
+        plt.xlabel('Electrode / Channel')
+        plt.ylabel('Mean Absolute SHAP Value')
+        plt.title(f'Top {top_n} Electrode Importance with Variability Across {num_subjects} Subjects')
+        plt.xticks(x, labels, rotation=45, ha='right')
+        plt.tight_layout()
+        
+        # Save the plot
+        plt.savefig(output_filename)
+        plt.close()
+        print("Subject variability plot saved successfully.")
+    except Exception as e:
+        print(f"Error generating subject variability plot: {e}")
+
+
+def main(run_timestamp, target_class_index, top_n, mat_var_name, 
+         scaling_method='z_score', agg_method='mean', 
+         outlier_handling='none', outlier_threshold=3.0):
+    """
+    Main function to perform SHAP analysis with configurable scaling and aggregation.
+    
+    Args:
+        run_timestamp: Timestamp string
+        target_class_index: Index of target class 
+        top_n: Number of top electrodes to display
+        mat_var_name: MATLAB variable name for channels
+        scaling_method: Method to scale subject data ('none', 'z_score', 'robust', 'minmax')
+        agg_method: Method to aggregate across subjects ('mean', 'median')
+        outlier_handling: Method to handle outliers ('none', 'cap', 'remove')
+        outlier_threshold: Z-score threshold for outlier detection
+    """
     print(f"--- SHAP Electrode Importance Analysis for Timestamp: {run_timestamp} ---")
+    print(f"Configuration: scaling={scaling_method}, aggregation={agg_method}, outlier_handling={outlier_handling}")
 
     # --- Define Paths ---
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -343,10 +502,35 @@ def main(run_timestamp, target_class_index, top_n, mat_var_name):
         sys.exit(1)
 
     # --- Calculate Importance ---
-    result = calculate_electrode_importance(consolidated_data, target_class_index)
+    result = calculate_electrode_importance(consolidated_data, target_class_index, scaling_method)
 
     if result is not None:
-        electrode_scores, num_channels = result # Unpack only if result is not None
+        subject_importance_list, num_channels = result # Unpack
+
+        # --- Handle outliers if requested ---
+        if outlier_handling != 'none':
+            print(f"\nHandling outliers using method: {outlier_handling} with threshold: {outlier_threshold}...")
+            # Handle outliers in each subject's data
+            for i in range(len(subject_importance_list)):
+                subject_importance_list[i] = handle_outliers(
+                    subject_importance_list[i], 
+                    method=outlier_handling, 
+                    threshold=outlier_threshold
+                )
+            print("Outlier handling complete.")
+
+        # --- Aggregate according to chosen method ---
+        print(f"\nPerforming final aggregation using method: {agg_method}...")
+        if agg_method == 'median':
+            overall_channel_importance = np.median(np.array(subject_importance_list), axis=0)
+            print("Using median aggregation across subjects.")
+        else:  # default to mean
+            overall_channel_importance = np.mean(np.array(subject_importance_list), axis=0)
+            print("Using mean aggregation across subjects.")
+
+        if overall_channel_importance.shape != (num_channels,):
+             print(f"Error: Final aggregated importance has unexpected shape {overall_channel_importance.shape}. Expected ({num_channels},).")
+             sys.exit(1)
 
         # --- Validate names count against channel count from SHAP ---
         valid_names = False
@@ -360,19 +544,22 @@ def main(run_timestamp, target_class_index, top_n, mat_var_name):
 
 
         # --- Print Top N ---
-        sorted_indices = np.argsort(electrode_scores)[::-1]
+        sorted_indices = np.argsort(overall_channel_importance)[::-1]
         print(f"\n--- Top {min(top_n, num_channels)} Most Important Electrodes (Class {target_class_index}) ---")
         for i in range(min(top_n, num_channels)):
             idx = sorted_indices[i]
             name_str = f" ({electrode_names[idx]})" if valid_names else "" # Add name if available
-            print(f"Rank {i+1}: Idx {idx}{name_str}, Score: {electrode_scores[idx]:.6f}")
+            print(f"Rank {i+1}: Idx {idx}{name_str}, Score: {overall_channel_importance[idx]:.6f}")
 
 
         # --- Plotting (Pass potentially None names) ---
-        plot_importance(electrode_scores, num_channels, electrode_names, run_timestamp, results_dir)
+        plot_importance(overall_channel_importance, num_channels, electrode_names, run_timestamp, results_dir)
 
         # --- Save Scores (Pass potentially None names) ---
-        save_scores(electrode_scores, num_channels, electrode_names, run_timestamp, results_dir)
+        save_scores(overall_channel_importance, num_channels, electrode_names, run_timestamp, results_dir)
+        
+        # --- Plot Subject Variability ---
+        plot_subject_variability(subject_importance_list, electrode_names, num_channels, run_timestamp, results_dir)
 
     else:
         # Handle the case where calculation failed
@@ -392,6 +579,14 @@ if __name__ == "__main__":
                         help="Number of top important electrodes to print (default: 10).")
     parser.add_argument("--mat_var_name", type=str, default="channels",
                         help="MATLAB Variable for channels.")
+    parser.add_argument("--scaling", type=str, choices=['none', 'z_score', 'minmax', 'robust'], 
+                    default='z_score', help="Method to scale subject data (default: z_score)")
+    parser.add_argument("--aggregation", type=str, choices=['mean', 'median'], 
+                    default='mean', help="Method to aggregate across subjects (default: mean)")
+    parser.add_argument("--outlier_handling", type=str, choices=['none', 'cap', 'remove'], 
+                    default='none', help="Method to handle outliers (default: none)")
+    parser.add_argument("--outlier_threshold", type=float, default=3.0,
+                    help="Z-score threshold for outlier detection (default: 3.0)")
 
     args = parser.parse_args()
 
@@ -407,5 +602,10 @@ if __name__ == "__main__":
     if args.top_n < 1:
         print("Error: --top_n must be a positive integer.")
         sys.exit(1)
+        
+    if args.outlier_threshold <= 0:
+        print("Error: --outlier_threshold must be a positive value.")
+        sys.exit(1)
 
-    main(args.timestamp, args.target_class, args.top_n, args.mat_var_name)
+    main(args.timestamp, args.target_class, args.top_n, args.mat_var_name, 
+         args.scaling, args.aggregation, args.outlier_handling, args.outlier_threshold)

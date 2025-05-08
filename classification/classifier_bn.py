@@ -82,7 +82,7 @@ os.makedirs(shap_dir, exist_ok=True)
 
 # --- Data Configurations ---
 data_type = 'bci'
-data_version = 'v8'
+data_version = 'me_v1'
 if(data_type == 'mit'):
     data_filename = f"mit_subject_data_{data_version}.npz"
     weight_name = "ST"

@@ -23,16 +23,16 @@ import warnings
 # DIRECTORIES & VARIABLES
 
 # Define the directory containing the .set files
-data_dir = "./data/rawdata/epoched_no_asr/"  # Update this with the correct directory path
+data_dir = "./data/rawdata/epoched_me/"  # Update this with the correct directory path
 save_dir = "./data/"
 os.makedirs(save_dir, exist_ok=True)
 
 # File naming pattern
-file_pattern = "MIT{}_INT.set"
+file_pattern = "MIT{}_ENT.set"
 num_subjects = 33 # Set to a smaller number (e.g., 1) for testing
 
 # Data Version
-data_version = 'v8' # Updated version
+data_version = 'v10' # Updated version
 
 # Bandpass Filter Range (Hz)
 f_low, f_high = 8, 40
@@ -51,16 +51,16 @@ new_freq = 250
 # Event marker for MI (Adjust based on your data inspection)
 # Common variations include 'S 9', '9', 'MI_Start', etc.
 # Check epochs.event_id after loading one file if unsure.
-mi_event_key = 'S  9' # ****** IMPORTANT: VERIFY THIS MARKER NAME ******
+mi_event_key = 'S  5' # ****** IMPORTANT: VERIFY THIS MARKER NAME ******
 
 # Time window for derived Rest epoch relative to MI onset (seconds)
-mi_tmin, mi_tmax = 0.25, 1.25
-rest_tmin, rest_tmax = -1.25, -0.25 # E.g., 1 second ending at MI onset
+mi_tmin, mi_tmax = 0.5, 2.5
+rest_tmin, rest_tmax = -2.25, -0.25 # E.g., 1 second ending at MI onset
 
 # Baseline correction periods relative to MI onset (seconds)
 # Assumes original epochs cover these time ranges relative to the MI onset
-baseline_mi = (0.0, 0.25)      # Baseline for MI: -0.5 seconds to MI onset (0s)
-baseline_rest = (-1.5, -1.25) # Baseline for Rest: -1.5 seconds to -1.25 seconds relative to MI onset
+baseline_mi = (-0.5, 0)      # Baseline for MI: -0.5 seconds to MI onset (0s)
+baseline_rest = (-2.5, -2.25) # Baseline for Rest: -1.5 seconds to -1.25 seconds relative to MI onset
 
 # ==================================================================================================
 # FUNCTIONS
