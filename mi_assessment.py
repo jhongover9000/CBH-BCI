@@ -2,71 +2,75 @@ import numpy as np
 import threading
 import time
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 import random
 import serial
 import serial.tools.list_ports
 import math
+import os
+import sys
+import traceback
+import csv
+import json
 
-# For better monitor detection
+# Import PsychoPy for the visual display
 try:
-    from screeninfo import get_monitors
-    SCREENINFO_AVAILABLE = True
+    from psychopy import visual, core, event, monitors
+    PSYCHOPY_AVAILABLE = True
 except ImportError:
-    SCREENINFO_AVAILABLE = False
-    import ctypes
-    import platform
+    PSYCHOPY_AVAILABLE = False
 
 class EEGMarkerGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("EEG Marker GUI")
-        # Increased initial height slightly for the new controls
-        self.root.geometry("550x950")
-        self.root.minsize(600, 600)
+        self.root.title("MI Assessment Conductor UI")
+        # Wider window for two-column layout
+        self.root.geometry("1000x650")
+        self.root.minsize(1000, 650)
 
-        # Marker Values (CHECK!!)
+        # Save Directory
+        self.save_dir = "./mi_assessment_results/"
+
+        # Marker Values
         self.session_start = 0
-        self.blank = 1
         self.baseline = 2
-        self.motor_execution = 3
-        self.motor_imagery = 4
-        self.rest = 5
-        self.eval_start = 7
-        self.eval_yes = 8
-        self.eval_no = 9
+        self.motor_imagery = 3
+        self.rest = 4
+        self.eval_start = 6
+        self.eval_yes = 7
+        self.eval_no = 8
         self.session_end = 10
 
-        # Adjustable durations (in seconds)
-        self.blank1_duration = tk.IntVar(value=0)      # Pre-trial blank (Block 1 or 2)
-        self.baseline1_duration = tk.IntVar(value=0)     # First baseline (Block 1 or 2)
-        self.motor_duration = tk.IntVar(value=2)         # Motor execution (Block 1 if enabled)
-        self.blank2_duration = tk.IntVar(value=0)        # Blank between blocks
-        self.baseline2_duration = tk.IntVar(value=5)     # Second baseline (Block 2)
-        self.imagery_duration = tk.IntVar(value=2)       # Motor imagery (Activity Block)
-        self.rest_duration = tk.IntVar(value=2)          # Rest (Activity Block)
+        # Subject and session information
+        self.subject_number = tk.StringVar(value="")
+        self.is_post_assessment = tk.BooleanVar(value=False)
+        
+        # Randomization options
+        self.use_randomization_file = tk.BooleanVar(value=False)
+        self.randomization_file_path = tk.StringVar(value="")
 
-        self.total_trials = tk.IntVar(value=10)
+        # Adjustable durations (in seconds)
+        self.baseline_duration = tk.IntVar(value=4)     # Baseline duration
+        self.imagery_duration = tk.IntVar(value=3)      # Motor imagery duration
+        self.rest_duration = tk.IntVar(value=3)         # Rest duration
+
+        self.total_trials = tk.IntVar(value=40)
 
         # Minimum baseline duration (in seconds) for randomization
-        self.min_baseline_duration = 3
+        self.min_baseline_duration = 2.5
 
         # Activity selection checkboxes
-        self.select_motor_exec = tk.BooleanVar(value=False)
         self.select_motor_imagery = tk.BooleanVar(value=True)
         self.select_rest = tk.BooleanVar(value=True)
 
-        # --- NEW: Randomization Option ---
-        self.randomize_block_order = tk.BooleanVar(value=False) # Option to randomize Execution vs Activity block order
-
-        # --- NEW: Serial Port Variables ---
+        # --- Serial Port Variables ---
         self.com_port = tk.StringVar(value="")
         self.available_ports = []
         self.serial_connection = None
         self.baud_rate = tk.IntVar(value=2000000)
 
-        # --- NEW: Monitor Selection Variables ---
+        # --- Monitor Selection Variables ---
         self.available_monitors = []
         self.selected_monitor = tk.IntVar(value=0)  # Default to primary monitor
 
@@ -74,235 +78,409 @@ class EEGMarkerGUI:
         self.current_trial = 0
         self.markers = []
         self.recording_start_time = None # Wall clock time when recording started
-
         
-
-        # --- Sequences for balanced randomization ---
+        # For evaluation results storage
+        self.eval_results = []
+        
+        # --- Sequences for activity randomization ---
         self.trial_activity_sequence = [] # Holds 'imagery' or 'rest' for each trial if balanced
-        self.trial_block_order_sequence = [] # Holds 'motor_first' or 'activity_first' if randomized
 
+        # PsychoPy related variables
+        self.psychopy_window = None
+        self.cue_text = None
+        self.question_text = None
+        self.evaluation_showing = False
+        self.waiting_for_response = False
+
+        # Questions and Instructions
+        self.imagery_question = "Did you imagine the motor movement?"
+        self.rest_question = "Were you able to maintain a resting state?"
+        self.instructions = "Welcome to the Motor Imagery Assessment.\n\nYou will be asked to either imagine a motor movement or to rest.\n\nAfter each task, you will evaluate your performance.\n\nPress SPACEBAR to begin."
+        self.show_instructions = True
+        
         self.setup_ui()
         self.get_available_com_ports()
         self.get_available_monitors()
 
     def setup_ui(self):
-        # Create a canvas and a vertical scrollbar so all content is accessible
-        canvas = tk.Canvas(self.root)
-        scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=canvas.yview)
-        # Create a frame inside the canvas which will hold all other widgets
-        scrollable_frame = tk.Frame(canvas, padx=20, pady=20)
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        # Create main frame
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.pack(fill="both", expand=True)
+        
+        # Configure grid with two columns
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=1)
+        
+        # Create a canvas and scrollbar for the left column
+        canvas = tk.Canvas(main_frame)
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        
+        # Create frames for left and right columns
+        left_frame = ttk.Frame(canvas, padding="5")
+        right_frame = ttk.Frame(main_frame, padding="5")
+        
+        # Setup canvas for scrolling
         canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
+        canvas.create_window((0, 0), window=left_frame, anchor="nw")
+        left_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        
+        # Place canvas, scrollbar, and right frame in the grid
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=0, sticky="nse")
+        right_frame.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        
+        # Make the canvas expand to fill the frame
+        main_frame.rowconfigure(0, weight=1)
+        
         self.dynamic_labels = []
         self.dynamic_buttons = []
+        
+        # Store indices for monitor selection
+        self.monitor_indices = [0]  # Default to primary monitor
 
-        row_idx = 0
+        # === LEFT COLUMN - SETUP & HARDWARE ===
+        left_row = 0
 
-        # --- NEW: Serial Port Selection ---
-        lbl_serial = tk.Label(scrollable_frame, text="Serial Port Settings")
-        lbl_serial.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
-        self.dynamic_labels.append(lbl_serial)
+        # --- Subject Information ---
+        subj_frame = ttk.LabelFrame(left_frame, text="Subject Information")
+        subj_frame.grid(row=left_row, column=0, sticky="ew", pady=(0, 10), padx=5)
+        left_row += 1
+        
+        # Subject number
+        ttk.Label(subj_frame, text="Subject Number:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        ttk.Entry(subj_frame, textvariable=self.subject_number, width=10).grid(row=0, column=1, sticky="w", padx=5, pady=2)
+        
+        # Pre/Post assessment
+        ttk.Label(subj_frame, text="Assessment Type:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        assessment_frame = ttk.Frame(subj_frame)
+        assessment_frame.grid(row=1, column=1, sticky="w", padx=5, pady=2)
+        ttk.Radiobutton(assessment_frame, text="Pre", variable=self.is_post_assessment, value=False).pack(side="left")
+        ttk.Radiobutton(assessment_frame, text="Post", variable=self.is_post_assessment, value=True).pack(side="left")
+
+        # --- Serial Port Selection ---
+        serial_frame = ttk.LabelFrame(left_frame, text="Serial Port Settings")
+        serial_frame.grid(row=left_row, column=0, sticky="ew", pady=(0, 10), padx=5)
+        left_row += 1
         
         # COM Port dropdown
-        port_frame = tk.Frame(scrollable_frame)
-        port_frame.grid(row=row_idx, column=0, sticky="ew", pady=(0, 5)); row_idx += 1
+        ttk.Label(serial_frame, text="COM Port:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        port_frame = ttk.Frame(serial_frame)
+        port_frame.grid(row=0, column=1, sticky="w", padx=5, pady=2)
         
-        lbl_port = tk.Label(port_frame, text="COM Port:")
-        lbl_port.pack(side="left", padx=(0, 5))
-        self.dynamic_labels.append(lbl_port)
-        
-        self.port_dropdown = ttk.Combobox(port_frame, textvariable=self.com_port, state="readonly", width=20)
-        self.port_dropdown.pack(side="left", padx=(0, 10))
+        self.port_dropdown = ttk.Combobox(port_frame, textvariable=self.com_port, state="readonly", width=10)
+        self.port_dropdown.pack(side="left", padx=(0, 5))
         
         refresh_button = ttk.Button(port_frame, text="Refresh", command=self.get_available_com_ports)
         refresh_button.pack(side="left")
         self.dynamic_buttons.append(refresh_button)
         
-        # Baud Rate frame
-        baud_frame = tk.Frame(scrollable_frame)
-        baud_frame.grid(row=row_idx, column=0, sticky="ew", pady=(0, 10)); row_idx += 1
-        
-        lbl_baud = tk.Label(baud_frame, text="Baud Rate:")
-        lbl_baud.pack(side="left", padx=(0, 5))
-        self.dynamic_labels.append(lbl_baud)
-        
-        baud_dropdown = ttk.Combobox(baud_frame, textvariable=self.baud_rate, state="readonly", width=10,
+        # Baud Rate
+        ttk.Label(serial_frame, text="Baud Rate:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        baud_dropdown = ttk.Combobox(serial_frame, textvariable=self.baud_rate, state="readonly", width=10,
                                     values=[9600, 19200, 38400, 57600, 115200, 2000000])
-        baud_dropdown.pack(side="left")
+        baud_dropdown.grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
-        # --- NEW: Monitor Selection ---
-        lbl_monitor = tk.Label(scrollable_frame, text="Display Settings")
-        lbl_monitor.grid(row=row_idx, column=0, sticky="w", pady=(10, 2)); row_idx += 1
-        self.dynamic_labels.append(lbl_monitor)
+        # --- Monitor Selection ---
+        monitor_frame = ttk.LabelFrame(left_frame, text="Display Settings")
+        monitor_frame.grid(row=left_row, column=0, sticky="ew", pady=(0, 10), padx=5)
+        left_row += 1
         
-        monitor_frame = tk.Frame(scrollable_frame)
-        monitor_frame.grid(row=row_idx, column=0, sticky="ew", pady=(0, 10)); row_idx += 1
+        ttk.Label(monitor_frame, text="Cue Monitor:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        mon_ctrl_frame = ttk.Frame(monitor_frame)
+        mon_ctrl_frame.grid(row=0, column=1, sticky="w", padx=5, pady=2)
         
-        lbl_monitor_select = tk.Label(monitor_frame, text="Cue Display Monitor:")
-        lbl_monitor_select.pack(side="left", padx=(0, 5))
-        self.dynamic_labels.append(lbl_monitor_select)
+        self.monitor_dropdown = ttk.Combobox(mon_ctrl_frame, textvariable=self.selected_monitor, state="readonly", width=10)
+        self.monitor_dropdown.pack(side="left", padx=(0, 5))
         
-        self.monitor_dropdown = ttk.Combobox(monitor_frame, textvariable=self.selected_monitor, state="readonly", width=20)
-        self.monitor_dropdown.pack(side="left", padx=(0, 10))
-        
-        refresh_monitor_button = ttk.Button(monitor_frame, text="Refresh", command=self.get_available_monitors)
+        refresh_monitor_button = ttk.Button(mon_ctrl_frame, text="Refresh", command=self.get_available_monitors)
         refresh_monitor_button.pack(side="left")
         self.dynamic_buttons.append(refresh_monitor_button)
 
-        # --- Separator ---
-        separator = ttk.Separator(scrollable_frame, orient="horizontal")
-        separator.grid(row=row_idx, column=0, sticky="ew", pady=10); row_idx += 1
+        # --- Randomization File Option ---
+        random_frame = ttk.LabelFrame(left_frame, text="Randomization Settings")
+        random_frame.grid(row=left_row, column=0, sticky="ew", pady=(0, 10), padx=5)
+        left_row += 1
+        
+        # Checkbox to use randomization file
+        ttk.Checkbutton(random_frame, text="Use Randomization File", 
+                      variable=self.use_randomization_file,
+                      command=self.toggle_randomization_file).grid(
+                          row=0, column=0, columnspan=2, sticky="w", padx=5, pady=2)
+        
+        # File path and browse button
+        self.file_path_entry = ttk.Entry(random_frame, textvariable=self.randomization_file_path, width=20, state="disabled")
+        self.file_path_entry.grid(row=1, column=0, sticky="ew", padx=5, pady=2)
+        
+        self.browse_button = ttk.Button(random_frame, text="Browse", command=self.browse_randomization_file, state="disabled")
+        self.browse_button.grid(row=1, column=1, sticky="w", padx=5, pady=2)
+        self.dynamic_buttons.append(self.browse_button)
 
-        # Pre-trial Blank Duration (Used before the FIRST block)
-        lbl_blank1 = tk.Label(scrollable_frame, text="Pre-Block Blank Duration (s)")
-        lbl_blank1.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
-        self.dynamic_labels.append(lbl_blank1)
-        blank1_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
-                                 variable=self.blank1_duration,
-                                 command=lambda val: self.update_label(self.blank1_val_label, val))
-        blank1_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
-        self.blank1_val_label = tk.Label(scrollable_frame, text=f"{self.blank1_duration.get()} s")
-        self.blank1_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
+        # === RIGHT COLUMN - EXPERIMENT PARAMETERS ===
+        right_row = 0
 
-        # Baseline 1 Duration (Used before the FIRST block's activity)
-        lbl_baseline1 = tk.Label(scrollable_frame, text="Pre-Activity Baseline Duration (s)")
-        lbl_baseline1.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
-        self.dynamic_labels.append(lbl_baseline1)
-        baseline1_scale = ttk.Scale(scrollable_frame, from_=self.min_baseline_duration, to=10, orient="horizontal",
-                                    variable=self.baseline1_duration,
-                                    command=lambda val: self.update_label(self.baseline1_val_label, val))
-        baseline1_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
-        self.baseline1_val_label = tk.Label(scrollable_frame, text=f"{self.baseline1_duration.get()} s")
-        self.baseline1_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
+        # --- Baseline Duration ---
+        param_frame = ttk.LabelFrame(right_frame, text="Experiment Parameters")
+        param_frame.grid(row=right_row, column=0, sticky="ew", pady=(0, 10), padx=5)
+        right_row += 1
+        
+        param_row = 0
+        
+        ttk.Label(param_frame, text="Baseline Duration (s):").grid(row=param_row, column=0, sticky="w", padx=5, pady=2)
+        baseline_frame = ttk.Frame(param_frame)
+        baseline_frame.grid(row=param_row, column=1, sticky="ew", padx=5, pady=2)
+        param_row += 1
+        
+        baseline_scale = ttk.Scale(baseline_frame, from_=self.min_baseline_duration, to=10, orient="horizontal",
+                                  variable=self.baseline_duration, length=150,
+                                  command=lambda val: self.update_label(self.baseline_val_label, val))
+        baseline_scale.pack(side="left", padx=(0, 5))
+        
+        self.baseline_val_label = ttk.Label(baseline_frame, text=f"{self.baseline_duration.get()} s", width=5)
+        self.baseline_val_label.pack(side="left")
 
-        # --- Motor Execution Duration & Checkbox ---
-        lbl_motor = tk.Label(scrollable_frame, text="Motor Execution Duration (s)")
-        lbl_motor.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
-        self.dynamic_labels.append(lbl_motor)
-        motor_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
-                                variable=self.motor_duration,
-                                command=lambda val: self.update_label(self.motor_val_label, val))
-        motor_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
-        self.motor_val_label = tk.Label(scrollable_frame, text=f"{self.motor_duration.get()} s")
-        self.motor_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
-        cb_motor = tk.Checkbutton(scrollable_frame, text="Enable Motor Execution Block", variable=self.select_motor_exec)
-        cb_motor.grid(row=row_idx, column=0, sticky="w"); row_idx += 1
-        self.dynamic_buttons.append(cb_motor)
+        # --- Activity Selection ---
+        ttk.Label(param_frame, text="Activity Types:").grid(row=param_row, column=0, sticky="w", padx=5, pady=2)
+        act_frame = ttk.Frame(param_frame)
+        act_frame.grid(row=param_row, column=1, sticky="w", padx=5, pady=2)
+        param_row += 1
+        
+        ttk.Checkbutton(act_frame, text="Motor Imagery", variable=self.select_motor_imagery).pack(side="left", padx=(0, 10))
+        ttk.Checkbutton(act_frame, text="Rest", variable=self.select_rest).pack(side="left")
+        
+        # Motor Imagery Duration
+        ttk.Label(param_frame, text="Imagery Duration (s):").grid(row=param_row, column=0, sticky="w", padx=5, pady=2)
+        imagery_frame = ttk.Frame(param_frame)
+        imagery_frame.grid(row=param_row, column=1, sticky="ew", padx=5, pady=2)
+        param_row += 1
+        
+        imagery_scale = ttk.Scale(imagery_frame, from_=1, to=10, orient="horizontal",
+                                 variable=self.imagery_duration, length=150,
+                                 command=lambda val: self.update_label(self.imagery_val_label, val))
+        imagery_scale.pack(side="left", padx=(0, 5))
+        
+        self.imagery_val_label = ttk.Label(imagery_frame, text=f"{self.imagery_duration.get()} s", width=5)
+        self.imagery_val_label.pack(side="left")
+        
+        # Rest Duration
+        ttk.Label(param_frame, text="Rest Duration (s):").grid(row=param_row, column=0, sticky="w", padx=5, pady=2)
+        rest_frame = ttk.Frame(param_frame)
+        rest_frame.grid(row=param_row, column=1, sticky="ew", padx=5, pady=2)
+        param_row += 1
+        
+        rest_scale = ttk.Scale(rest_frame, from_=1, to=10, orient="horizontal",
+                              variable=self.rest_duration, length=150,
+                              command=lambda val: self.update_label(self.rest_val_label, val))
+        rest_scale.pack(side="left", padx=(0, 5))
+        
+        self.rest_val_label = ttk.Label(rest_frame, text=f"{self.rest_duration.get()} s", width=5)
+        self.rest_val_label.pack(side="left")
+        
+        # Total Trials
+        ttk.Label(param_frame, text="Total Trials:").grid(row=param_row, column=0, sticky="w", padx=5, pady=2)
+        ttk.Spinbox(param_frame, from_=1, to=100, textvariable=self.total_trials, width=5).grid(row=param_row, column=1, sticky="w", padx=5, pady=2)
+        param_row += 1
 
+        # --- Status and Control ---
+        status_frame = ttk.LabelFrame(right_frame, text="Status and Control")
+        status_frame.grid(row=right_row, column=0, sticky="ew", pady=(0, 10), padx=5)
+        right_row += 1
+        
+        # Trial Label
+        self.trial_label = ttk.Label(status_frame, text="Trial: 0 / 0")
+        self.trial_label.pack(pady=5)
 
-        # --- Inter-Block Blank Duration ---
-        lbl_blank2 = tk.Label(scrollable_frame, text="Inter-Block Blank Duration (s)")
-        lbl_blank2.grid(row=row_idx, column=0, sticky="w", pady=(10, 2)); row_idx += 1
-        self.dynamic_labels.append(lbl_blank2)
-        blank2_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
-                                 variable=self.blank2_duration,
-                                 command=lambda val: self.update_label(self.blank2_val_label, val))
-        blank2_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
-        self.blank2_val_label = tk.Label(scrollable_frame, text=f"{self.blank2_duration.get()} s")
-        self.blank2_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
-
-        # --- Baseline 2 Duration (Used before the SECOND block's activity) ---
-        lbl_baseline2 = tk.Label(scrollable_frame, text="Inter-Block Baseline Duration (s)")
-        lbl_baseline2.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
-        self.dynamic_labels.append(lbl_baseline2)
-        baseline2_scale = ttk.Scale(scrollable_frame, from_=self.min_baseline_duration, to=10, orient="horizontal",
-                                    variable=self.baseline2_duration,
-                                    command=lambda val: self.update_label(self.baseline2_val_label, val))
-        baseline2_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
-        self.baseline2_val_label = tk.Label(scrollable_frame, text=f"{self.baseline2_duration.get()} s")
-        self.baseline2_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
-
-        # --- Activity Phase (Block 2) Selection & Durations ---
-        lbl_activity = tk.Label(scrollable_frame, text="Activity Block Options (choose one or both):")
-        lbl_activity.grid(row=row_idx, column=0, sticky="w", pady=(10, 2)); row_idx += 1
-        self.dynamic_labels.append(lbl_activity)
-        act_frame = tk.Frame(scrollable_frame)
-        act_frame.grid(row=row_idx, column=0, sticky="w", pady=(0, 10)); row_idx += 1
-        cb_imagery = tk.Checkbutton(act_frame, text="Motor Imagery", variable=self.select_motor_imagery)
-        cb_imagery.pack(side="left", padx=(0, 10))
-        self.dynamic_buttons.append(cb_imagery)
-        cb_rest = tk.Checkbutton(act_frame, text="Rest", variable=self.select_rest)
-        cb_rest.pack(side="left")
-        self.dynamic_buttons.append(cb_rest)
-        # Motor Imagery Duration slider
-        lbl_imagery = tk.Label(scrollable_frame, text="Motor Imagery Duration (s)")
-        lbl_imagery.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
-        self.dynamic_labels.append(lbl_imagery)
-        imagery_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
-                                  variable=self.imagery_duration,
-                                  command=lambda val: self.update_label(self.imagery_val_label, val))
-        imagery_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
-        self.imagery_val_label = tk.Label(scrollable_frame, text=f"{self.imagery_duration.get()} s")
-        self.imagery_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
-        # Rest Duration slider
-        lbl_rest = tk.Label(scrollable_frame, text="Rest Duration (s)")
-        lbl_rest.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
-        self.dynamic_labels.append(lbl_rest)
-        rest_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
-                               variable=self.rest_duration,
-                               command=lambda val: self.update_label(self.rest_val_label, val))
-        rest_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
-        self.rest_val_label = tk.Label(scrollable_frame, text=f"{self.rest_duration.get()} s")
-        self.rest_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
-
-        # --- Randomize Block Order Checkbox ---
-        cb_random_block = tk.Checkbutton(scrollable_frame, text="Randomize Block Order (Execution vs. Activity)",
-                                         variable=self.randomize_block_order)
-        cb_random_block.grid(row=row_idx, column=0, sticky="w", pady=(5, 10)); row_idx += 1
-        self.dynamic_buttons.append(cb_random_block)
-
-        # --- Total Trials ---
-        lbl_trials = tk.Label(scrollable_frame, text="Total Trials")
-        lbl_trials.grid(row=row_idx, column=0, sticky="w", pady=(10, 2)); row_idx += 1
-        self.dynamic_labels.append(lbl_trials)
-        t_spinbox = ttk.Spinbox(scrollable_frame, from_=1, to=100, textvariable=self.total_trials, width=5)
-        t_spinbox.grid(row=row_idx, column=0, sticky="w", pady=(0, 10)); row_idx += 1
-
-        # --- Trial Label ---
-        self.trial_label = tk.Label(scrollable_frame, text="Trial: 0 / 0")
-        self.trial_label.grid(row=row_idx, column=0, pady=(10, 5)); row_idx += 1
+        # Start/Stop Buttons 
+        button_frame = ttk.Frame(status_frame)
+        button_frame.pack(fill="x", pady=5)
+        
+        self.start_button = ttk.Button(button_frame, text="Start Session", command=self.start_session)
+        self.start_button.pack(side="left", fill="x", expand=True, padx=5, pady=5)
+        self.dynamic_buttons.append(self.start_button)
+        
+        self.stop_button = ttk.Button(button_frame, text="Stop Session", command=self.stop_session, state="disabled")
+        self.stop_button.pack(side="left", fill="x", expand=True, padx=5, pady=5)
+        self.dynamic_buttons.append(self.stop_button)
 
         # --- Logs ---
-        lbl_logs = tk.Label(scrollable_frame, text="Logs")
-        lbl_logs.grid(row=row_idx, column=0, sticky="w"); row_idx += 1
-        self.dynamic_labels.append(lbl_logs)
-        self.log_box = tk.Text(scrollable_frame, height=8, state="disabled", bg="#f5f5f5") # Increased height slightly
-        self.log_box.grid(row=row_idx, column=0, sticky="nsew", pady=(0, 10)); row_idx += 1
-        scrollable_frame.grid_rowconfigure(row_idx -1, weight=2) # Make log box expand vertically
+        log_frame = ttk.LabelFrame(right_frame, text="Logs")
+        log_frame.grid(row=right_row, column=0, sticky="nsew", pady=(0, 10), padx=5)
+        right_row += 1
+        right_frame.rowconfigure(right_row-1, weight=1)  # Make logs expand
+        
+        self.log_box = tk.Text(log_frame, height=15, state="disabled", bg="#f5f5f5")
+        self.log_box.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # Add a trace to handle monitor selection changes via the dropdown
+        self.monitor_dropdown.bind('<<ComboboxSelected>>', self.on_monitor_selected)
 
-        # --- Start and Stop Buttons ---
-        self.start_button = tk.Button(scrollable_frame, text="Start Session", command=self.start_session)
-        self.start_button.grid(row=row_idx, column=0, sticky="ew", pady=(0, 5)); row_idx += 1
-        self.dynamic_buttons.append(self.start_button)
-        self.stop_button = tk.Button(scrollable_frame, text="Stop Session", command=self.stop_session, state="disabled")
-        self.stop_button.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
-        self.dynamic_buttons.append(self.stop_button)
+    def toggle_randomization_file(self):
+        """Enable/disable randomization file controls based on checkbox"""
+        if self.use_randomization_file.get():
+            self.file_path_entry.config(state="normal")
+            self.browse_button.config(state="normal")
+        else:
+            self.file_path_entry.config(state="disabled")
+            self.browse_button.config(state="disabled")
+            
+    def browse_randomization_file(self):
+        """Open file dialog to select a randomization file"""
+        filetypes = [
+            ('Text files', '*.txt'),
+            ('JSON files', '*.json'),
+            ('CSV files', '*.csv'),
+            ('All files', '*.*')
+        ]
+        
+        filename = filedialog.askopenfilename(
+            title="Select Randomization File",
+            filetypes=filetypes
+        )
+        
+        if filename:
+            self.randomization_file_path.set(filename)
+            self.log(f"Selected randomization file: {filename}")
+    
+    def load_randomization_from_file(self):
+        """Load trial sequence from file"""
+        if not self.use_randomization_file.get() or not self.randomization_file_path.get():
+            return False
+            
+        filepath = self.randomization_file_path.get()
+        if not os.path.exists(filepath):
+            self.log(f"Error: Randomization file not found: {filepath}")
+            return False
+            
+        try:
+            file_ext = os.path.splitext(filepath)[1].lower()
+            
+            if file_ext == '.json':
+                # Load from JSON
+                with open(filepath, 'r') as f:
+                    data = json.load(f)
+                
+                if isinstance(data, dict):
+                    # Check for activity_sequence key
+                    if 'activity_sequence' in data:
+                        sequence = data['activity_sequence']
+                    elif 'sequence' in data:
+                        sequence = data['sequence']
+                    else:
+                        # Try to interpret the whole dict as a sequence
+                        sequence = [v for k, v in data.items()]
+                elif isinstance(data, list):
+                    # Use the list directly
+                    sequence = data
+                else:
+                    self.log(f"Error: Invalid JSON format in {filepath}")
+                    return False
+                    
+            elif file_ext == '.csv':
+                # Load from CSV
+                sequence = []
+                with open(filepath, 'r') as f:
+                    reader = csv.reader(f)
+                    for row in reader:
+                        if row and len(row) > 0:
+                            # Take first column value
+                            activity = row[0].strip().lower()
+                            if activity in ['imagery', 'rest', 'motor_imagery']:
+                                if activity == 'motor_imagery':
+                                    activity = 'imagery'  # normalize naming
+                                sequence.append(activity)
+                
+            else:  # .txt or other
+                # Load from simple text file (one activity per line)
+                sequence = []
+                with open(filepath, 'r') as f:
+                    for line in f:
+                        activity = line.strip().lower()
+                        if activity in ['imagery', 'rest', 'motor_imagery']:
+                            if activity == 'motor_imagery':
+                                activity = 'imagery'  # normalize naming
+                            sequence.append(activity)
+            
+            # Validate the sequence contains only valid activity types
+            valid_sequence = []
+            for item in sequence:
+                if item in ['imagery', 'rest']:
+                    valid_sequence.append(item)
+                else:
+                    self.log(f"Warning: Invalid activity type '{item}' in sequence, skipping")
+            
+            if not valid_sequence:
+                self.log("Error: No valid activities found in randomization file")
+                return False
+                
+            # Update trial activity sequence
+            self.trial_activity_sequence = valid_sequence
+            self.log(f"Loaded {len(valid_sequence)} trials from randomization file")
+            
+            # Update total trials to match sequence length
+            self.total_trials.set(len(valid_sequence))
+            
+            return True
+            
+        except Exception as e:
+            self.log(f"Error loading randomization file: {e}")
+            return False
+    
+    def on_monitor_selected(self, event=None):
+        """Handle monitor selection change"""
+        idx = self.monitor_dropdown.current()
+        if 0 <= idx < len(self.monitor_indices):
+            monitor_idx = self.monitor_indices[idx]
+            self.selected_monitor.set(monitor_idx)
+            self.log(f"Selected monitor {monitor_idx}")
+        else:
+            self.log("Invalid monitor selection")
 
     def to_hex(self, value):
         return str(hex(value))
 
     def update_label(self, label_widget, val):
         # Ensure minimum value for baseline scales is respected in label
-        if label_widget in [self.baseline1_val_label, self.baseline2_val_label]:
+        if label_widget == self.baseline_val_label:
             fval = max(float(val), self.min_baseline_duration)
             label_widget.config(text=f"{fval:.1f} s")
         else:
             label_widget.config(text=f"{int(float(val))} s")
 
     def update_cue(self, symbol, title):
-        # Ensure cue window exists before updating
-        if hasattr(self, 'cue_win') and self.cue_win.winfo_exists():
-            self.cue_win.title(title)
-            self.cue_label.config(text=symbol)
-            self.cue_win.update()
+        """Update the PsychoPy window to show the current cue"""
+        if not self.psychopy_window:
+            self.log("Warning: PsychoPy window not available for cue update")
+            return
+            
+        try:
+            # Update the text stimulus
+            if self.cue_text:
+                # Set the text
+                self.cue_text.setText(symbol)
+                
+                # Update window title (may not work on all systems)
+                try:
+                    self.psychopy_window.winHandle.set_caption(title)
+                except:
+                    pass
+                
+                # Make sure evaluation is not showing
+                self.evaluation_showing = False
+                
+                # Log the actual content for debugging
+                self.log(f"Setting cue text to: '{symbol}' (visible: {bool(symbol)})")
+                
+                # Force a redraw and flip
+                if symbol:  # Only draw if there's actual content
+                    self.cue_text.draw()
+                self.psychopy_window.flip()
+                
+                # Log after flip
+                self.log(f"Cue updated to: '{symbol}' (Title: {title})")
+            else:
+                self.log("Warning: PsychoPy text stimulus not initialized")
+        except Exception as e:
+            self.log(f"Error updating cue: {e}")
+            # Continue despite errors to keep the experiment running
 
     def get_available_com_ports(self):
         """Scan for available COM ports and update dropdown"""
@@ -321,138 +499,78 @@ class EEGMarkerGUI:
             self.log(f"Found {len(self.available_ports)} COM ports: {', '.join(self.available_ports)}")
 
     def get_available_monitors(self):
-        """Scan for available monitors and update dropdown using platform-specific methods"""
+        """Get available monitors using PsychoPy"""
+        if not PSYCHOPY_AVAILABLE:
+            self.log("PsychoPy not available, cannot detect monitors")
+            self.available_monitors = [(0, "Primary Monitor")]
+            self.monitor_indices = [0]
+            self.monitor_dropdown['values'] = ["Primary Monitor"]
+            self.monitor_dropdown.current(0)
+            self.selected_monitor.set(0)
+            return
+            
         self.available_monitors = []
+        self.monitor_indices = []
         
         try:
-            # First try using the screeninfo library if available
-            if SCREENINFO_AVAILABLE:
-                monitors = get_monitors()
-                
-                for idx, monitor in enumerate(monitors):
-                    # Format information about each monitor
-                    primary_text = " (Primary)" if idx == 0 else ""
-                    monitor_desc = f"Monitor {idx}{primary_text} - {monitor.width}x{monitor.height} at ({monitor.x},{monitor.y})"
-                    self.available_monitors.append((idx, monitor_desc))
-                    
-                    # Store the monitor's position information for later
-                    setattr(self, f"monitor_{idx}_x", monitor.x)
-                    setattr(self, f"monitor_{idx}_y", monitor.y)
-                    setattr(self, f"monitor_{idx}_width", monitor.width)
-                    setattr(self, f"monitor_{idx}_height", monitor.height)
-                
-                self.log(f"Found {len(monitors)} monitor(s) using screeninfo library")
+            # Get all monitors from PsychoPy
+            all_monitors = monitors.getAllMonitors()
             
-            # Fallback to platform-specific methods if screeninfo is not available
-            else:
-                system = platform.system()
-                
-                if system == "Windows":
-                    # Windows-specific code to get monitor information
-                    self.log("Using Windows API for monitor detection")
-                    user32 = ctypes.windll.user32
-                    
-                    # Get primary monitor dimensions
-                    primary_width = user32.GetSystemMetrics(0)  # SM_CXSCREEN
-                    primary_height = user32.GetSystemMetrics(1)  # SM_CYSCREEN
-                    
-                    # Check if multiple monitors are present
-                    monitor_count = user32.GetSystemMetrics(80)  # SM_CMONITORS
-                    
-                    # Add primary monitor
-                    self.available_monitors.append((0, f"Primary Monitor - {primary_width}x{primary_height}"))
-                    
-                    # If multiple monitors are detected, use virtual screen information
-                    if monitor_count > 1:
-                        # Get virtual screen coordinates (all monitors combined)
-                        virtual_left = user32.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN
-                        virtual_top = user32.GetSystemMetrics(77)  # SM_YVIRTUALSCREEN
-                        virtual_width = user32.GetSystemMetrics(78)  # SM_CXVIRTUALSCREEN
-                        virtual_height = user32.GetSystemMetrics(79)  # SM_CYVIRTUALSCREEN
-                        
-                        # Add a second monitor indicator (simplified approach)
-                        # This is a best-guess since Windows API doesn't easily expose
-                        # individual monitor coordinates through ctypes
-                        self.available_monitors.append(
-                            (1, f"Secondary Monitor - Virtual screen: {virtual_width}x{virtual_height}")
-                        )
-                        
-                        self.log(f"Found {monitor_count} monitor(s) using Windows API")
-                    
-                elif system == "Darwin":  # macOS
-                    # Use Tkinter's screen dimensions as fallback on macOS
-                    self.log("Using macOS/Tkinter fallback for monitor detection")
+            # First add the default monitor (usually primary)
+            primary_mon = monitors.Monitor('default')
+            width, height = primary_mon.getSizePix() if primary_mon.getSizePix() else (1920, 1080)
+            self.available_monitors.append((0, f"Primary Monitor - {width}x{height}"))
+            self.monitor_indices.append(0)
+            
+            # Then add any additional monitors
+            for i, mon_name in enumerate(all_monitors, 1):
+                if mon_name != 'default':
+                    mon = monitors.Monitor(mon_name)
+                    width, height = mon.getSizePix() if mon.getSizePix() else (1920, 1080)
+                    self.available_monitors.append((i, f"{mon_name} - {width}x{height}"))
+                    self.monitor_indices.append(i)
+            
+            # If no monitors found in PsychoPy, use system info
+            if len(self.available_monitors) <= 1:
+                # Try using system-specific methods to get more monitors
+                try:
+                    # Try to get screen resolution using tkinter
                     self.root.update_idletasks()
+                    width = self.root.winfo_screenwidth()
+                    height = self.root.winfo_screenheight()
                     
-                    # Get primary monitor dimensions
-                    primary_width = self.root.winfo_screenwidth()
-                    primary_height = self.root.winfo_screenheight()
+                    # Add the primary monitor
+                    if not self.available_monitors:
+                        self.available_monitors.append((0, f"Primary Monitor - {width}x{height}"))
+                        self.monitor_indices.append(0)
                     
-                    # Add primary monitor
-                    self.available_monitors.append((0, f"Primary Monitor - {primary_width}x{primary_height}"))
+                    # Check for secondary monitor (very simple approach)
+                    # This is system-dependent and may not work reliably
+                    if width > 2000:  # Heuristic: if screen width is very large, might be multiple monitors
+                        self.available_monitors.append((1, f"Secondary Monitor (estimated)"))
+                        self.monitor_indices.append(1)
+                except Exception as e:
+                    self.log(f"Error getting monitor info: {e}")
                     
-                    # Test for a second monitor using a heuristic approach
-                    # Create a temporary window with position outside primary screen
-                    try:
-                        test_win = tk.Toplevel(self.root)
-                        test_win.geometry(f"10x10+{primary_width+100}+100")  # Position outside primary
-                        test_win.update()
-                        
-                        # If position is accepted, likely a secondary monitor exists
-                        if test_win.winfo_x() > primary_width:
-                            self.available_monitors.append(
-                                (1, "Secondary Monitor - Detected")
-                            )
-                            self.log("Detected secondary monitor")
-                        
-                        test_win.destroy()
-                    except:
-                        pass
-                
-                else:  # Linux or other
-                    # Use Tkinter's built-in values as fallback
-                    self.log("Using Tkinter fallback for monitor detection")
-                    self.root.update_idletasks()
-                    
-                    # Get primary monitor dimensions
-                    primary_width = self.root.winfo_screenwidth()
-                    primary_height = self.root.winfo_screenheight()
-                    
-                    # Add primary monitor
-                    self.available_monitors.append((0, f"Primary Monitor - {primary_width}x{primary_height}"))
-                    
-                    # Unable to reliably detect secondary monitors without screeninfo
-                    self.log("Secondary monitors might not be detected correctly without screeninfo library")
-            
-            # If no monitors were found (shouldn't happen), add a default one
-            if not self.available_monitors:
-                self.root.update_idletasks()
-                width = self.root.winfo_screenwidth()
-                height = self.root.winfo_screenheight()
-                self.available_monitors.append((0, f"Default Monitor - {width}x{height}"))
-                self.log("Using default monitor as fallback")
-            
             # Update the dropdown with monitor options
             monitor_values = [desc for _, desc in self.available_monitors]
             self.monitor_dropdown['values'] = monitor_values
             
-            # Find the current monitor index in our available monitors list
-            current_val = self.selected_monitor.get()
-            current_idx = 0
-            for i, (idx, _) in enumerate(self.available_monitors):
-                if idx == current_val:
-                    current_idx = i
-                    break
-            
-            # Set current selection
-            self.monitor_dropdown.current(current_idx)
-            self.selected_monitor.set(self.available_monitors[current_idx][0])
-            
-            self.log(f"Updated monitor selection dropdown with {len(self.available_monitors)} option(s)")
+            # Set selection if needed
+            if self.monitor_dropdown.current() < 0 and monitor_values:
+                self.monitor_dropdown.current(0)
+                self.selected_monitor.set(self.monitor_indices[0])
+                
+            self.log(f"Found {len(self.available_monitors)} monitor(s)")
             
         except Exception as e:
             self.log(f"Error detecting monitors: {e}")
-            # Fallback to primary monitor only
+            import traceback
+            self.log(traceback.format_exc())
+            
+            # Fallback
+            self.available_monitors = [(0, "Primary Monitor")]
+            self.monitor_indices = [0]
             self.monitor_dropdown['values'] = ["Primary Monitor"]
             self.monitor_dropdown.current(0)
             self.selected_monitor.set(0)
@@ -476,6 +594,211 @@ class EEGMarkerGUI:
             messagebox.showerror("Serial Connection Error", f"Could not connect to {port}:\n{e}")
             return False
 
+    def create_psychopy_window(self):
+        """Create a PsychoPy window on the selected monitor"""
+        if not PSYCHOPY_AVAILABLE:
+            self.log("Error: PsychoPy is not available. Please install with: pip install psychopy")
+            messagebox.showerror("Error", "PsychoPy is not installed. Please install with: pip install psychopy")
+            self.stop_session()
+            return False
+            
+        # Close any existing window
+        if hasattr(self, 'psychopy_window') and self.psychopy_window:
+            try:
+                self.psychopy_window.close()
+            except:
+                pass
+            
+        # Get the selected monitor index
+        monitor_idx = self.selected_monitor.get()
+        self.log(f"Attempting to create PsychoPy window on monitor {monitor_idx}")
+        
+        try:
+            # Get screen information using tkinter
+            self.root.update_idletasks()
+            main_screen_width = self.root.winfo_screenwidth()
+            main_screen_height = self.root.winfo_screenheight()
+            
+            # Different approach based on monitor index
+            if monitor_idx == 0:
+                # Primary monitor
+                self.log(f"Creating window on primary monitor ({main_screen_width}x{main_screen_height})")
+                self.psychopy_window = visual.Window(
+                    size=(main_screen_width, main_screen_height),
+                    fullscr=True,
+                    color='gray',  # Explicitly use 'gray' instead of (-1,-1,-1)
+                    units='norm',
+                    allowGUI=False,
+                    screen=0
+                )
+            else:
+                # For secondary monitor, try with specific position
+                # Assuming secondary monitor is to the right of primary (most common setup)
+                self.log(f"Creating window on secondary monitor at position ({main_screen_width}, 0)")
+                pos = (main_screen_width, 0)  # Position to the right of primary monitor
+                
+                # Try different creation methods for different PsychoPy versions
+                try:
+                    # First try with explicit position
+                    self.psychopy_window = visual.Window(
+                        size=(main_screen_width, main_screen_height),  # Assume same size as primary
+                        fullscr=True,
+                        color='gray',
+                        units='norm',
+                        allowGUI=False,
+                        pos=pos,  # Position at start of second monitor
+                        screen=1
+                    )
+                    self.log("Created window with explicit position")
+                except Exception as pos_err:
+                    self.log(f"Error creating window with position: {pos_err}")
+                    # If explicit positioning fails, try just with screen index
+                    try:
+                        self.psychopy_window = visual.Window(
+                            fullscr=True,
+                            color='gray',
+                            units='norm',
+                            allowGUI=False,
+                            screen=1  # Try using screen=1 for secondary monitor
+                        )
+                        self.log("Created window with screen=1")
+                    except Exception as screen_err:
+                        self.log(f"Error creating window with screen=1: {screen_err}")
+                        # Last resort: create on primary monitor
+                        self.log("Falling back to primary monitor")
+                        self.psychopy_window = visual.Window(
+                            fullscr=True,
+                            color='gray',
+                            units='norm',
+                            allowGUI=False
+                        )
+            
+            # Create text stimuli with bright colors to ensure visibility
+            self.cue_text = visual.TextStim(
+                win=self.psychopy_window,
+                text='',
+                font='Arial',
+                pos=(0, 0),
+                height=0.3,
+                wrapWidth=None,
+                color='white',  # Use string 'white' instead of (1,1,1)
+                bold=True,      # Make text bold
+                opacity=1.0     # Ensure full opacity
+            )
+            
+            self.question_text = visual.TextStim(
+                win=self.psychopy_window,
+                text='Did you perform the activity?',
+                font='Arial',
+                pos=(0, 0.0),
+                height=0.1,
+                wrapWidth=None,
+                color='white',
+                bold=True,
+                opacity=1.0
+            )
+            
+            self.instruction_text = visual.TextStim(
+                win=self.psychopy_window,
+                text='Press Y for YES or N for NO',
+                font='Arial',
+                pos=(0, -0.2),
+                height=0.07,
+                wrapWidth=None,
+                color='white',
+                bold=True,
+                opacity=1.0
+            )
+
+            self.instruction_stim = visual.TextStim(
+                win=self.psychopy_window,
+                text=self.instructions,
+                font='Arial',
+                pos=(0, 0),
+                height=0.05,  # Smaller text for longer content
+                wrapWidth=1.8,  # Allow text wrapping
+                color='white',
+                alignText='center',
+                anchorHoriz='center',
+                anchorVert='center',
+                bold=False
+            )
+            
+            # Draw initial text and flip to show it's working
+            if self.show_instructions:
+                self.instruction_stim.draw()
+                self.psychopy_window.flip()
+            
+            # Start PsychoPy updates using Tkinter's event loop
+            self.schedule_psychopy_update()
+            
+            self.log("PsychoPy window created successfully")
+            return True
+            
+        except Exception as e:
+            self.log(f"Error creating PsychoPy window: {e}")
+            self.log(traceback.format_exc())
+            messagebox.showerror("Error", f"Failed to create PsychoPy window:\n{e}")
+            return False
+
+    def schedule_psychopy_update(self):
+        """Schedule periodic updates for PsychoPy in Tkinter's event loop"""
+        # Define the update function that will be called repeatedly
+        def update_psychopy():
+            try:
+                # Only process if we have a valid window and are running
+                if self.psychopy_window and self.running:
+                    # Check for key presses with better output
+                    keys = event.getKeys(keyList=['y', 'Y', 'n', 'N', 'escape', 'space'])
+                    
+                    # Process keys
+                    if keys:
+                        self.log(f"Key pressed: {keys}")
+                        
+                        # Handle Escape key
+                        if 'escape' in keys and self.running:
+                            self.stop_session()
+                        
+                        # Handle spacebar for instructions
+                        if 'space' in keys and self.show_instructions:
+                            self.show_instructions = False
+                            self.psychopy_window.flip()  # Clear screen
+                            self.log("Instructions complete, ready to start trials")
+
+                            # Start the first trial after 1 second
+                            self.root.after(1000, self.start_trial)
+                        
+                        # Handle evaluation keys
+                        if self.waiting_for_response:
+                            if 'y' in keys or 'Y' in keys:
+                                self.log("Y key detected during evaluation")
+                                self.evaluation_response(True)
+                            elif 'n' in keys or 'N' in keys:
+                                self.log("N key detected during evaluation")
+                                self.evaluation_response(False)
+                                        
+                    # Redraw if needed
+                    if self.evaluation_showing:
+                        # Occasionally redraw the evaluation screen in case it disappeared
+                        if random.random() < 0.1:  # 10% chance each cycle
+                            self.question_text.draw()
+                            self.instruction_text.draw()
+                            self.psychopy_window.flip()
+                
+                # Schedule the next update if we're still running
+                if self.running:
+                    self.root.after(30, update_psychopy)  # ~33 FPS
+                
+            except Exception as e:
+                # Log and reschedule even on error
+                self.log(f"Error in PsychoPy update: {e}")
+                if self.running:
+                    self.root.after(100, update_psychopy)  # Try again after a delay
+        
+        # Start the update cycle
+        self.root.after(100, update_psychopy)
+        self.log("Scheduled PsychoPy updates in Tkinter event loop")
+
     def send_marker(self, marker_label):
         """Send a marker through the serial port"""
         try:
@@ -483,7 +806,7 @@ class EEGMarkerGUI:
                 self.log(f"Error: Cannot send marker '{marker_label}' - Serial connection not open")
                 return
             
-            # Send the marker as a string followed by newline
+            # Send the marker as a string
             marker_str = f"{marker_label}"
             self.serial_connection.write(marker_str.encode('utf-8'))
             
@@ -501,8 +824,57 @@ class EEGMarkerGUI:
         except Exception as e:
             self.log(f"Error sending marker '{marker_label}': {e}")
 
+    def show_evaluation_screen(self):
+        """Show the evaluation screen with question based on activity type"""
+        if not self.psychopy_window:
+            self.log("Warning: PsychoPy window not available for evaluation screen")
+            return
+            
+        try:
+            self.evaluation_showing = True
+            self.waiting_for_response = True
+            
+            # Choose question based on activity type
+            if self.current_activity == 'imagery':
+                self.question_text.setText(self.imagery_question)
+            else:  # rest
+                self.question_text.setText(self.rest_question)
+            
+            # Draw evaluation screen components
+            self.question_text.draw()
+            self.instruction_text.draw()
+            
+            # Flip to show the new content
+            self.psychopy_window.flip()
+            
+            self.log(f"Evaluation screen shown for {self.current_activity}, waiting for Y/N response")
+        except Exception as e:
+            self.log(f"Error showing evaluation screen: {e}")
+
+    def hide_evaluation_screen(self):
+        """Hide the evaluation screen"""
+        if not self.psychopy_window:
+            return
+            
+        try:
+            self.evaluation_showing = False
+            self.waiting_for_response = False
+            
+            # Just flip to clear the screen (don't draw anything)
+            self.psychopy_window.flip()
+            
+            self.log("Evaluation screen hidden")
+        except Exception as e:
+            self.log(f"Error hiding evaluation screen: {e}")
+
     def start_session(self):
         # --- Input Validation ---
+        # Check subject number
+        subject = self.subject_number.get().strip()
+        if not subject:
+            messagebox.showerror("Error", "Please enter a subject number")
+            return
+            
         # Check serial port
         if not self.setup_serial():
             return
@@ -512,48 +884,40 @@ class EEGMarkerGUI:
             messagebox.showerror("Error", "Total trials must be greater than 0.")
             return
 
-        motor_selected = self.select_motor_exec.get()
         imagery_selected = self.select_motor_imagery.get()
         rest_selected = self.select_rest.get()
         activity_selected = imagery_selected or rest_selected
 
-        if not motor_selected and not activity_selected:
-            messagebox.showerror("Error", "At least one block type (Motor Execution or an Activity) must be selected.")
+        if not activity_selected:
+            messagebox.showerror("Error", "At least one activity type (Motor Imagery or Rest) must be selected.")
             return
+        
+        
 
-        # Warn if randomization is selected but only one block type is enabled
-        if self.randomize_block_order.get() and not (motor_selected and activity_selected):
-            messagebox.showwarning("Warning", "Randomize Block Order selected, but only one block type (Execution or Activity) is enabled. Randomization will have no effect.")
-            self.randomize_block_order.set(False) # Disable it visually
-
-        # --- Generate Trial Sequences ---
+        # --- Generate Trial Sequence ---
         self.trial_activity_sequence = []
-        self.trial_block_order_sequence = []
+        self.eval_results = []  # Reset evaluation results
 
-        # 1. Activity Sequence (Imagery vs. Rest)
-        if activity_selected:
+        # Try to load sequence from file if requested
+        if self.use_randomization_file.get() and self.randomization_file_path.get():
+            if not self.load_randomization_from_file():
+                # Failed to load file - ask if we should continue
+                if not messagebox.askyesno("Warning", 
+                    "Failed to load randomization file. Continue with auto-generated sequence?"):
+                    return  # User chose to cancel
+                    
+                # Otherwise, continue with auto-generated sequence
+        
+        # If we don't have a sequence yet, generate one
+        if not self.trial_activity_sequence:
+            # Activity Sequence (Imagery vs. Rest)
             if imagery_selected and rest_selected:
-                num_imagery = n_trials // 2
-                num_rest = n_trials - num_imagery # Handles odd numbers
-                self.trial_activity_sequence = ['imagery'] * num_imagery + ['rest'] * num_rest
-                random.shuffle(self.trial_activity_sequence)
-                self.log(f"Generated balanced Imagery/Rest sequence for {n_trials} trials.")
+                self.trial_activity_sequence = self.generate_counterbalanced_sequence(n_trials)
+                self.log(f"Generated counterbalanced sequence for {n_trials} trials.")
             elif imagery_selected:
                 self.trial_activity_sequence = ['imagery'] * n_trials
             else: # only rest_selected
                 self.trial_activity_sequence = ['rest'] * n_trials
-
-        # 2. Block Order Sequence (Motor vs. Activity)
-        if motor_selected and activity_selected and self.randomize_block_order.get():
-            num_motor_first = n_trials // 2
-            num_activity_first = n_trials - num_motor_first
-            self.trial_block_order_sequence = ['motor_first'] * num_motor_first + ['activity_first'] * num_activity_first
-            random.shuffle(self.trial_block_order_sequence)
-            self.log(f"Generated randomized Block Order sequence for {n_trials} trials.")
-        elif motor_selected: # Default order if randomization off or only motor selected
-             self.trial_block_order_sequence = ['motor_first'] * n_trials
-        else: # Only activity selected
-             self.trial_block_order_sequence = ['activity_first'] * n_trials
 
         # --- Start Session ---
         self.running = True
@@ -562,77 +926,26 @@ class EEGMarkerGUI:
         self.markers = []
         self.current_trial = 0
         self.trial_label.config(text=f"Trial: 0 / {n_trials}")
+        self.show_instructions = True
 
-        # Get monitor information for cue display
-        selected_monitor_idx = self.selected_monitor.get()
-        
-        # Setup Cue Window on selected monitor
-        self.cue_win = tk.Toplevel(self.root)
-        self.cue_win.title("Ready")
-        
-        # Position on the selected monitor
-        if SCREENINFO_AVAILABLE:
-            # If using screeninfo library, we have the exact positions
-            try:
-                # Get the position attributes we stored during detection
-                x = getattr(self, f"monitor_{selected_monitor_idx}_x", 0)
-                y = getattr(self, f"monitor_{selected_monitor_idx}_y", 0)
-                width = getattr(self, f"monitor_{selected_monitor_idx}_width", self.root.winfo_screenwidth())
-                height = getattr(self, f"monitor_{selected_monitor_idx}_height", self.root.winfo_screenheight())
-                
-                # Position the window on the selected monitor
-                self.cue_win.geometry(f"{width}x{height}+{x}+{y}")
-                self.log(f"Positioning cue display on monitor {selected_monitor_idx} at ({x},{y})")
-            except AttributeError:
-                # Fallback if attributes not found
-                self.log(f"Could not find position for monitor {selected_monitor_idx}, using fullscreen on primary")
-                self.cue_win.attributes("-fullscreen", True)
-        elif selected_monitor_idx == 0:
-            # Primary monitor - use fullscreen
-            self.cue_win.attributes("-fullscreen", True)
-        else:
-            # For secondary monitors without screeninfo, use best-guess positioning
-            monitor_position = (0, 0)  # Default
-            
-            if platform.system() == "Windows":
-                # On Windows, make a reasonable guess
-                if selected_monitor_idx == 1:  # First secondary monitor
-                    primary_width = self.root.winfo_screenwidth()
-                    monitor_position = (primary_width, 0)  # Assume it's to the right
-            else:
-                # On macOS/Linux, use similar heuristic
-                if selected_monitor_idx == 1:
-                    primary_width = self.root.winfo_screenwidth()
-                    monitor_position = (primary_width, 0)  # Assume it's to the right
-            
-            # Position and maximize on the secondary monitor
-            x, y = monitor_position
-            self.cue_win.geometry(f"+{x}+{y}")
-            self.log(f"Positioning cue display on monitor {selected_monitor_idx} at estimated position ({x},{y})")
-            self.cue_win.attributes("-fullscreen", True)
-        
-        self.cue_win.configure(bg="black")
-        
-        # Ensure it grabs focus and handles Esc
-        self.cue_win.focus_force()
-        self.cue_win.bind("<Escape>", lambda e: self.stop_session())
-
-        # Create the cue label
-        self.cue_label = tk.Label(self.cue_win, text="", fg="white", bg="black", font=("Arial", 100, "bold"))
-        self.cue_label.pack(expand=True)
-        self.cue_win.update() # Make sure it's drawn
-
-        # Bind Escape key to main window as well
-        self.root.bind("<Escape>", lambda e: self.stop_session())
+        # Create the PsychoPy window
+        if not self.create_psychopy_window():
+            self.stop_session()
+            return
 
         # Start the session
         self.recording_start_time = time.time() # Wall clock start time
-        self.log(f"Session started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Get pre/post status
+        session_type = "POST" if self.is_post_assessment.get() else "PRE"
+        
+        self.log(f"Started {session_type} assessment for subject {subject} at {timestamp}")
         self.send_marker(self.to_hex(self.session_start)) # Mark session start
 
         # Start the first trial after a short delay
         self.root.after(500, self.start_trial)
-
+    
     def stop_session(self):
         if not self.running: # Prevent double stop
             return
@@ -645,23 +958,30 @@ class EEGMarkerGUI:
             self.serial_connection.close()
             self.log("Serial connection closed")
 
-        if hasattr(self, 'cue_win') and self.cue_win.winfo_exists():
-            self.cue_win.destroy()
+        # Close the PsychoPy window
+        if hasattr(self, 'psychopy_window') and self.psychopy_window:
+            try:
+                self.psychopy_window.close()
+                self.log("PsychoPy window closed")
+            except:
+                self.log("Error closing PsychoPy window")
+            self.psychopy_window = None
 
         # Cancel any pending `after` calls to prevent errors
         for after_id in self.root.tk.call('after', 'info'):
-            self.root.after_cancel(after_id)
+            try:
+                self.root.after_cancel(after_id)
+            except:
+                pass  # Ignore errors when canceling
 
         self.start_button.config(state="normal")
         self.stop_button.config(state="disabled")
 
-        # Unbind Escape keys
-        self.root.unbind("<Escape>")
-
         self.log(f"Session ended at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         
-        # Export marker log if needed
+        # Export marker log and evaluation results
         self.export_marker_log()
+        self.export_evaluation_results()
 
     def export_marker_log(self):
         """Export markers to a text file for reference"""
@@ -670,12 +990,17 @@ class EEGMarkerGUI:
             return
             
         try:
+            # Create filename with subject number and pre/post info
+            subject = self.subject_number.get().strip()
+            session_type = "POST" if self.is_post_assessment.get() else "PRE"
             timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"marker_log_{timestamp_str}.txt"
+            
+            filename = f"{self.save_dir}S{subject}_{session_type}_marker_log_{timestamp_str}.txt"
             
             with open(filename, 'w') as f:
-                f.write(f"Session Marker Log - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write("="*50 + "\n\n")
+                f.write(f"Session Marker Log - Subject {subject} - {session_type} Assessment\n")
+                f.write(f"Date/Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("="*70 + "\n\n")
                 f.write("Relative Time (s) | Marker\n")
                 f.write("-"*50 + "\n")
                 
@@ -690,8 +1015,76 @@ class EEGMarkerGUI:
             self.log(f"Error exporting marker log: {e}")
             messagebox.showerror("Export Error", f"Failed to export marker log: {e}")
 
+    def export_evaluation_results(self):
+        """Export evaluation results to a text file"""
+        if not self.eval_results:
+            self.log("No evaluation results to export")
+            return
+        
+        try:
+            # Create filename with subject number and pre/post info
+            subject = self.subject_number.get().strip()
+            session_type = "POST" if self.is_post_assessment.get() else "PRE"
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            filename = f"{self.save_dir}S{subject}_{session_type}_eval_results_{timestamp_str}.txt"
+            
+            with open(filename, 'w') as f:
+                f.write(f"Evaluation Results - Subject {subject} - {session_type} Assessment\n")
+                f.write(f"Date/Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("="*70 + "\n\n")
+                f.write("Trial | Activity Type | Response | Response Time (s)\n")
+                f.write("-"*70 + "\n")
+                
+                for trial, activity, response, response_time in self.eval_results:
+                    f.write(f"{trial:5d} | {activity:12s} | {response:8s} | {response_time:14.2f}\n")
+                
+                # Add summary statistics
+                f.write("\nSummary Statistics:\n")
+                f.write("-"*70 + "\n")
+                
+                # Calculate stats for imagery trials
+                imagery_responses = [r for t, a, r, rt in self.eval_results if a == 'imagery']
+                if imagery_responses:
+                    imagery_yes = sum(1 for r in imagery_responses if r == 'YES')
+                    imagery_pct = (imagery_yes / len(imagery_responses)) * 100
+                    f.write(f"Motor Imagery Trials: {len(imagery_responses)}, YES responses: {imagery_yes} ({imagery_pct:.1f}%)\n")
+                
+                # Calculate stats for rest trials
+                rest_responses = [r for t, a, r, rt in self.eval_results if a == 'rest']
+                if rest_responses:
+                    rest_yes = sum(1 for r in rest_responses if r == 'YES')
+                    rest_pct = (rest_yes / len(rest_responses)) * 100
+                    f.write(f"Rest Trials: {len(rest_responses)}, YES responses: {rest_yes} ({rest_pct:.1f}%)\n")
+                
+                # Overall stats
+                total_yes = sum(1 for t, a, r, rt in self.eval_results if r == 'YES')
+                total_pct = (total_yes / len(self.eval_results)) * 100
+                f.write(f"Total Trials: {len(self.eval_results)}, YES responses: {total_yes} ({total_pct:.1f}%)\n")
+            
+            self.log(f"Evaluation results exported to {filename}")
+            messagebox.showinfo("Export Complete", f"Evaluation results saved to {filename}")
+            
+            # Also save as CSV for data analysis
+            csv_filename = f"{self.save_dir}S{subject}_{session_type}_eval_results_{timestamp_str}.csv"
+            with open(csv_filename, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Subject', 'Session', 'Trial', 'Activity', 'Response', 'ResponseTime'])
+                
+                for trial, activity, response, response_time in self.eval_results:
+                    writer.writerow([subject, session_type, trial, activity, response, f"{response_time:.4f}"])
+            
+            self.log(f"Evaluation results also saved as CSV: {csv_filename}")
+            
+        except Exception as e:
+            self.log(f"Error exporting evaluation results: {e}")
+            messagebox.showerror("Export Error", f"Failed to export evaluation results: {e}")
+
     def start_trial(self):
         """Initiates a single trial."""
+        if self.show_instructions:
+            return
+        
         if not self.running or self.current_trial >= self.total_trials.get():
             if self.running: # If stopped externally, stop_session handles logging/saving
                 self.stop_session()
@@ -701,133 +1094,146 @@ class EEGMarkerGUI:
         self.trial_label.config(text=f"Trial: {self.current_trial} / {self.total_trials.get()}")
         self.log(f"\n--- Starting Trial {self.current_trial} ---")
 
-        # Determine block order for this trial
-        current_block_order = self.trial_block_order_sequence[self.current_trial - 1]
-        self.log(f"Trial {self.current_trial} Order: {current_block_order}")
+        # Start with baseline phase
+        self.start_baseline_phase()
 
-        # Start the first phase: Blank before the first block
-        self.start_blank_phase(is_first_block=True, next_phase='baseline1')
-
-    # --- Phase Control Functions ---
-
-    def start_blank_phase(self, is_first_block, next_phase):
-        """Handles blank periods."""
-        duration = self.blank1_duration.get() if is_first_block else self.blank2_duration.get()
-        marker = 'blank_pre' if is_first_block else 'blank_inter'
-        self.update_cue("", "Blank")
-        self.send_marker(self.to_hex(self.blank))
-        self.log(f"Phase: {marker} ({duration} s)")
-        self.root.after(duration * 1000, getattr(self, f'start_{next_phase}_phase')) # Calls start_baseline1_phase or start_baseline2_phase
-
-    def start_baseline1_phase(self):
-        """Handles the baseline period BEFORE the FIRST activity/execution block."""
+    def start_baseline_phase(self):
+        """Handles the baseline period."""
         self.update_cue("+", "Baseline")
         self.send_marker(self.to_hex(self.baseline))
 
         # Use max duration from slider, randomize between min and max
-        max_duration = self.baseline1_duration.get()
+        max_duration = self.baseline_duration.get()
         duration_randomized = random.uniform(self.min_baseline_duration, max_duration)
-        self.log(f"Phase: Baseline 1 ({duration_randomized:.2f} s)")
+        self.log(f"Phase: Baseline ({duration_randomized:.2f} s)")
 
-        # Determine what comes next based on the pre-shuffled block order
-        first_block_type = self.trial_block_order_sequence[self.current_trial - 1]
-        if first_block_type == 'motor_first':
-            next_func = self.start_motor_execution_phase
-        else: # 'activity_first'
-            next_func = self.start_activity_phase
+        # Next will be the activity phase
+        self.root.after(int(duration_randomized * 1000), self.start_activity_phase)
 
-        self.root.after(int(duration_randomized * 1000), next_func, True) # Pass is_first_block=True
-
-    def start_baseline2_phase(self):
-        """Handles the baseline period BEFORE the SECOND activity/execution block."""
-        self.update_cue("+", "Baseline")
-        self.send_marker(self.to_hex(self.baseline))
-
-        # Use max duration from slider, randomize between min and max
-        max_duration = self.baseline2_duration.get()
-        duration_randomized = random.uniform(self.min_baseline_duration, max_duration)
-        self.log(f"Phase: Baseline 2 ({duration_randomized:.2f} s)")
-
-        # Determine what comes next (the second block)
-        first_block_type = self.trial_block_order_sequence[self.current_trial - 1]
-        if first_block_type == 'motor_first':
-            # Motor was first, so Activity is second
-            next_func = self.start_activity_phase
-        else: # 'activity_first'
-            # Activity was first, so Motor is second
-            next_func = self.start_motor_execution_phase
-
-        self.root.after(int(duration_randomized * 1000), next_func, False) # Pass is_first_block=False
-
-
-    def start_motor_execution_phase(self, is_first_block):
-        """Handles the motor execution block."""
-        if not self.select_motor_exec.get(): # Should not happen if logic is correct, but safe check
-             self.log("Motor Execution skipped (not selected)")
-             # Decide what to do if skipped - depends if it was first or second
-             if is_first_block:
-                 self.start_blank_phase(is_first_block=False, next_phase='baseline2')
-             else:
-                 self.start_trial() # End of trial
-             return
-
-        self.update_cue("M", "Motor Execution")
-        self.send_marker(self.to_hex(self.motor_execution))
-        duration = self.motor_duration.get()
-        self.log(f"Phase: Motor Execution ({duration} s)")
-
-        # Schedule end marker and next phase
-        self.root.after(duration * 1000, self.end_motor_execution_phase, is_first_block)
-
-    def end_motor_execution_phase(self, is_first_block):
-        """Transitions from motor execution."""
-        # self.send_marker('execution_end')
-        if is_first_block:
-            # Finished first block, move to inter-block blank/baseline
-             self.start_blank_phase(is_first_block=False, next_phase='baseline2')
-        else:
-            # Finished second block, end trial
-            self.start_trial() # Will check if more trials are left
-
-
-    def start_activity_phase(self, is_first_block):
-        """Handles the activity (Imagery or Rest) block."""
-        if not (self.select_motor_imagery.get() or self.select_rest.get()):
-             self.log("Activity Phase skipped (none selected)")
-             if is_first_block:
-                 self.start_blank_phase(is_first_block=False, next_phase='baseline2')
-             else:
-                 self.start_trial()
-             return
-
+    def start_activity_phase(self):
+        """Handles the activity phase (Imagery or Rest)."""
         # Get the activity for the current trial from the pre-shuffled list
         activity = self.trial_activity_sequence[self.current_trial - 1]
-        if(activity == 'imagery'):
-            marker_start = self.to_hex(self.motor_imagery)
-        elif (activity == 'rest'):
-            marker_start = self.to_hex(self.rest)
-
+        
         if activity == 'imagery':
             self.update_cue("•", "Motor Imagery")
+            marker_start = self.to_hex(self.motor_imagery)
             duration = self.imagery_duration.get()
             self.log(f"Phase: Motor Imagery ({duration} s)")
         else: # activity == 'rest'
             self.update_cue("", "Rest") # Blank screen for rest
+            marker_start = self.to_hex(self.rest)
             duration = self.rest_duration.get()
             self.log(f"Phase: Rest ({duration} s)")
 
         self.send_marker(marker_start)
-        self.root.after(duration * 1000, self.end_activity_phase, is_first_block, activity)
+        
+        # Schedule evaluation phase
+        self.root.after(duration * 1000, self.start_evaluation_phase, activity)
 
+    def start_evaluation_phase(self, activity_type):
+        """Start the evaluation phase after an activity."""
+        # Clear any previous cue
+        self.update_cue("", "Evaluation")
+        
+        # Send marker
+        self.send_marker(self.to_hex(self.eval_start))
+        
+        # Store current activity type for the evaluation
+        self.current_activity = activity_type
+        
+        # Store start time for response time measurement
+        self.eval_start_time = time.time()
+        
+        # Add a slight delay before showing eval screen to ensure transition is visible
+        self.root.after(100, self.show_evaluation_screen)
+        
+        self.log("Evaluation phase started - waiting for Y/N keypress")
+        
+        # Note: No timeout - waiting for user keystroke
 
-    def end_activity_phase(self, is_first_block, activity_type):
-        """Transitions from activity phase."""
-        if is_first_block:
-            # Finished first block, move to inter-block blank/baseline
-            self.start_blank_phase(is_first_block=False, next_phase='baseline2')
+    def evaluation_response(self, response):
+        """Handle yes/no response during evaluation period."""
+        if not self.waiting_for_response:
+            return  # Prevent double responses
+            
+        # Calculate response time
+        response_time = time.time() - self.eval_start_time
+        
+        # Hide evaluation screen
+        self.hide_evaluation_screen()
+        
+        # Log and store the response
+        if response:
+            self.log(f"Evaluation: YES (response time: {response_time:.2f}s)")
+            self.send_marker(self.to_hex(self.eval_yes))
         else:
-            # Finished second block, end trial
-            self.start_trial()
+            self.log(f"Evaluation: NO (response time: {response_time:.2f}s)")
+            self.send_marker(self.to_hex(self.eval_no))
+            
+        # Store result
+        self.eval_results.append((
+            self.current_trial, 
+            self.current_activity, 
+            "YES" if response else "NO",
+            response_time
+        ))
+        
+        # Move to next trial
+        self.root.after(500, self.start_trial)  # Small delay before next trial
+
+    def generate_counterbalanced_sequence(self, n_trials):
+        """Generate a counterbalanced sequence of trials
+        
+        This ensures:
+        1. Equal (or as close as possible) number of each trial type
+        2. Balanced transitions between trial types
+        3. No more than 3 consecutive trials of the same type
+        """
+        # Determine number of each trial type
+        n_imagery = n_trials // 2
+        n_rest = n_trials - n_imagery  # Handles odd trial counts
+        
+        # Start with a basic alternating sequence to ensure transitions
+        seq = []
+        for i in range(n_trials):
+            if i % 2 == 0:
+                if len([t for t in seq if t == 'imagery']) < n_imagery:
+                    seq.append('imagery')
+                else:
+                    seq.append('rest')
+            else:
+                if len([t for t in seq if t == 'rest']) < n_rest:
+                    seq.append('rest')
+                else:
+                    seq.append('imagery')
+        
+        # Apply additional randomization while maintaining counterbalancing
+        # We'll work with blocks of 2 trials to preserve transitions
+        blocks = [seq[i:i+2] for i in range(0, len(seq), 2)]
+        random.shuffle(blocks)
+        
+        # Flatten the blocks back into a sequence
+        final_seq = [item for block in blocks for item in block]
+        
+        # Verify counterbalancing
+        img_count = final_seq.count('imagery')
+        rest_count = final_seq.count('rest')
+        self.log(f"Counterbalanced sequence: {img_count} imagery trials, {rest_count} rest trials")
+        
+        # Check for runs of more than 3 consecutive trials
+        has_long_runs = False
+        for i in range(len(final_seq) - 3):
+            if (final_seq[i] == final_seq[i+1] == final_seq[i+2] == final_seq[i+3]):
+                has_long_runs = True
+                break
+        
+        # If we have runs of 4 or more, recursively regenerate
+        if has_long_runs and n_trials > 6:  # Only for longer sequences
+            self.log("Detected runs of 4+ consecutive trials, regenerating sequence")
+            return self.generate_counterbalanced_sequence(n_trials)
+        
+        return final_seq
 
     def log(self, message):
         # Ensure GUI updates happen in the main thread
@@ -843,6 +1249,19 @@ class EEGMarkerGUI:
 
 
 if __name__ == "__main__":
+    # Check for PsychoPy
+    if not PSYCHOPY_AVAILABLE:
+        print("WARNING: PsychoPy is not installed. Installing PsychoPy...")
+        try:
+            import pip
+            pip.main(['install', 'psychopy'])
+            print("PsychoPy installed successfully. Please restart the application.")
+        except:
+            print("ERROR: Could not install PsychoPy. Please install manually with:")
+            print("pip install psychopy")
+        input("Press Enter to exit...")
+        sys.exit(1)
+    
     root = tk.Tk()
     app = EEGMarkerGUI(root)
     root.mainloop()
