@@ -85,6 +85,14 @@ class EEGMarkerGUI:
         # --- Sequences for activity randomization ---
         self.trial_activity_sequence = [] # Holds 'imagery' or 'rest' for each trial if balanced
 
+        # For video playing
+        self.showing_landing = False
+        self.landing_text = "Press Y to replay the instruction video\nPress N to begin the experiment"
+        self.video_file_path = tk.StringVar(value="")
+        self.use_instruction_video = tk.BooleanVar(value=False)
+        self.video_stimulus = None
+        self.showing_video = False
+
         # PsychoPy related variables
         self.psychopy_window = None
         self.cue_text = None
@@ -95,7 +103,7 @@ class EEGMarkerGUI:
         # Questions and Instructions
         self.imagery_question = "Did you imagine the motor movement?"
         self.rest_question = "Were you able to maintain a resting state?"
-        self.instructions = "Welcome to the Motor Imagery Assessment.\n\nYou will be asked to either imagine a motor movement or to rest.\n\nAfter each task, you will evaluate your performance.\n\nPress SPACEBAR to begin."
+        self.instructions = "Welcome to the Motor Imagery Assessment.\n\nAfter a baseline period (+), you will be asked to either imagine a motor movement when you see the \u2022 cue, or to maintain a resting state when you see a blank screen.\n\nAfter each task, you will evaluate your performance.\n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
         self.show_instructions = True
         
         self.setup_ui()
@@ -214,6 +222,24 @@ class EEGMarkerGUI:
         self.browse_button = ttk.Button(random_frame, text="Browse", command=self.browse_randomization_file, state="disabled")
         self.browse_button.grid(row=1, column=1, sticky="w", padx=5, pady=2)
         self.dynamic_buttons.append(self.browse_button)
+
+        video_frame = ttk.LabelFrame(left_frame, text="Instruction Video")
+        video_frame.grid(row=left_row, column=0, sticky="ew", pady=(0, 10), padx=5)
+        left_row += 1
+
+        # Checkbox to use instruction video
+        ttk.Checkbutton(video_frame, text="Show instruction video", 
+                    variable=self.use_instruction_video,
+                    command=self.toggle_video_settings).grid(
+                        row=0, column=0, columnspan=2, sticky="w", padx=5, pady=2)
+
+        # File path and browse button
+        self.video_path_entry = ttk.Entry(video_frame, textvariable=self.video_file_path, width=20, state="disabled")
+        self.video_path_entry.grid(row=1, column=0, sticky="ew", padx=5, pady=2)
+
+        self.video_browse_button = ttk.Button(video_frame, text="Browse", command=self.browse_video_file, state="disabled")
+        self.video_browse_button.grid(row=1, column=1, sticky="w", padx=5, pady=2)
+        self.dynamic_buttons.append(self.video_browse_button)
 
         # === RIGHT COLUMN - EXPERIMENT PARAMETERS ===
         right_row = 0
@@ -424,6 +450,33 @@ class EEGMarkerGUI:
             self.log(f"Error loading randomization file: {e}")
             return False
     
+    def toggle_video_settings(self):
+        """Enable/disable video file controls based on checkbox"""
+        if self.use_instruction_video.get():
+            self.video_path_entry.config(state="normal")
+            self.video_browse_button.config(state="normal")
+        else:
+            self.video_path_entry.config(state="disabled")
+            self.video_browse_button.config(state="disabled")
+            
+    def browse_video_file(self):
+        """Open file dialog to select a video file"""
+        filetypes = [
+            ('Video files', '*.mp4 *.avi *.mov *.wmv *.mkv'),
+            ('MP4 files', '*.mp4'),
+            ('AVI files', '*.avi'),
+            ('All files', '*.*')
+        ]
+        
+        filename = filedialog.askopenfilename(
+            title="Select Instruction Video",
+            filetypes=filetypes
+        )
+        
+        if filename:
+            self.video_file_path.set(filename)
+            self.log(f"Selected video file: {filename}")
+
     def on_monitor_selected(self, event=None):
         """Handle monitor selection change"""
         idx = self.monitor_dropdown.current()
@@ -723,6 +776,38 @@ class EEGMarkerGUI:
                 anchorVert='center',
                 bold=False
             )
+
+            # After creating other text stimuli, add:
+            self.landing_stim = visual.TextStim(
+                win=self.psychopy_window,
+                text=self.landing_text,
+                font='Arial',
+                pos=(0, 0),
+                height=0.07,
+                wrapWidth=1.8,
+                color='white',
+                alignText='center',
+                anchorHoriz='center',
+                anchorVert='center',
+                bold=True
+            )
+
+            # Create video stimulus if video file is specified
+            if self.use_instruction_video.get() and self.video_file_path.get():
+                try:
+                    self.video_stimulus = visual.MovieStim3(
+                        win=self.psychopy_window,
+                        filename=self.video_file_path.get(),
+                        pos=(0, 0),
+                        size=None,  # Use original video size
+                        flipVert=False,
+                        flipHoriz=False,
+                        volume=1.0
+                    )
+                    self.log("Video stimulus created successfully")
+                except Exception as e:
+                    self.log(f"Error creating video stimulus: {e}")
+                    self.video_stimulus = None
             
             # Draw initial text and flip to show it's working
             if self.show_instructions:
@@ -762,28 +847,68 @@ class EEGMarkerGUI:
                         # Handle spacebar for instructions
                         if 'space' in keys and self.show_instructions:
                             self.show_instructions = False
-                            self.psychopy_window.flip()  # Clear screen
-                            self.log("Instructions complete, ready to start trials")
-
-                            # Start the first trial after 1 second
-                            self.root.after(1000, self.start_trial)
+                            
+                            # Check if we should show video
+                            if self.use_instruction_video.get() and self.video_stimulus:
+                                self.showing_video = True
+                                self.video_stimulus.seek(0)  # Reset to beginning
+                                self.video_stimulus.play()
+                                self.log("Instructions complete, playing instruction video")
+                            else:
+                                # No video, go to landing page
+                                self.showing_landing = True
+                                self.landing_stim.draw()
+                                self.psychopy_window.flip()
+                                self.log("Instructions complete, showing landing page")
                         
-                        # Handle evaluation keys
-                        if self.waiting_for_response:
+                        # Handle landing page responses
+                        if self.showing_landing:
+                            if 'y' in keys or 'Y' in keys:
+                                # Replay video
+                                self.showing_landing = False
+                                if self.video_stimulus:
+                                    self.showing_video = True
+                                    self.video_stimulus.seek(0)  # Reset to beginning
+                                    self.video_stimulus.play()
+                                    self.log("Replaying instruction video")
+                                else:
+                                    # If no video available, just show landing again
+                                    self.landing_stim.draw()
+                                    self.psychopy_window.flip()
+                                    self.log("No video to replay")
+                            
+                            elif 'space' in keys or 'n' in keys or 'N' in keys:
+                                # Proceed to experiment
+                                self.showing_landing = False
+                                self.psychopy_window.flip()  # Clear screen
+                                self.log("Landing page complete, starting trials")
+                                self.root.after(100, self.start_trial)
+                        
+                        # Handle evaluation keys (only when waiting for evaluation response)
+                        elif self.waiting_for_response:
                             if 'y' in keys or 'Y' in keys:
                                 self.log("Y key detected during evaluation")
                                 self.evaluation_response(True)
                             elif 'n' in keys or 'N' in keys:
                                 self.log("N key detected during evaluation")
                                 self.evaluation_response(False)
-                                        
-                    # Redraw if needed
-                    if self.evaluation_showing:
-                        # Occasionally redraw the evaluation screen in case it disappeared
-                        if random.random() < 0.1:  # 10% chance each cycle
-                            self.question_text.draw()
-                            self.instruction_text.draw()
-                            self.psychopy_window.flip()
+
+                # Handle video playback
+                if self.showing_video and self.video_stimulus:
+                    # Draw the video frame
+                    self.video_stimulus.draw()
+                    self.psychopy_window.flip()
+                    
+                    # Check if video is finished
+                    if self.video_stimulus.status == visual.FINISHED:
+                        self.showing_video = False
+                        self.video_stimulus.stop()
+                        self.showing_landing = True
+                        
+                        # Show landing page
+                        self.landing_stim.draw()
+                        self.psychopy_window.flip()
+                        self.log("Video finished, showing landing page")
                 
                 # Schedule the next update if we're still running
                 if self.running:
@@ -1082,9 +1207,10 @@ class EEGMarkerGUI:
 
     def start_trial(self):
         """Initiates a single trial."""
-        if self.show_instructions:
+        # Don't start trials if still showing instructions, video, or landing page
+        if self.show_instructions or self.showing_video or self.showing_landing:
             return
-        
+            
         if not self.running or self.current_trial >= self.total_trials.get():
             if self.running: # If stopped externally, stop_session handles logging/saving
                 self.stop_session()
