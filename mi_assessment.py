@@ -795,7 +795,7 @@ class EEGMarkerGUI:
             # Create video stimulus if video file is specified
             if self.use_instruction_video.get() and self.video_file_path.get():
                 try:
-                    self.video_stimulus = visual.MovieStim(
+                    self.video_stimulus = visual.MovieStim3(
                         win=self.psychopy_window,
                         filename=self.video_file_path.get(),
                         pos=(0, 0),
