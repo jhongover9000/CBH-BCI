@@ -29,8 +29,12 @@ class EEGMarkerGUI:
         self.root.geometry("1000x650")
         self.root.minsize(1000, 650)
 
-        # Save Directory
-        self.save_dir = "./mi_assessment_results/"
+        # Directories
+        self.video_dir = "./mi_assessment/resources/finger_tap_ex.mp4"
+        self.order_dir = "./mi_assessment/resources/counterbalanced_order.txt"
+        self.save_directory = "./mi_assessment/saves/"
+        self.debug_mode = tk.BooleanVar(value=False)
+        self.auto_participant_management = tk.BooleanVar(value=True)
 
         # Marker Values
         self.session_start = 0
@@ -47,8 +51,8 @@ class EEGMarkerGUI:
         self.is_post_assessment = tk.BooleanVar(value=False)
         
         # Randomization options
-        self.use_randomization_file = tk.BooleanVar(value=False)
-        self.randomization_file_path = tk.StringVar(value="")
+        self.use_randomization_file = tk.BooleanVar(value=True)
+        self.randomization_file_path = tk.StringVar(value=self.order_dir)
 
         # Adjustable durations (in seconds)
         self.baseline_duration = tk.IntVar(value=4)     # Baseline duration
@@ -88,8 +92,8 @@ class EEGMarkerGUI:
         # For video playing
         self.showing_landing = False
         self.landing_text = "Press Y to replay the instruction video\nPress N to begin the experiment"
-        self.video_file_path = tk.StringVar(value="")
-        self.use_instruction_video = tk.BooleanVar(value=False)
+        self.video_file_path = tk.StringVar(value=self.video_dir)
+        self.use_instruction_video = tk.BooleanVar(value=True)
         self.video_stimulus = None
         self.showing_video = False
 
@@ -103,7 +107,7 @@ class EEGMarkerGUI:
         # Questions and Instructions
         self.imagery_question = "Did you imagine the motor movement?"
         self.rest_question = "Were you able to maintain a resting state?"
-        self.instructions = "Welcome to the Motor Imagery Assessment.\n\nAfter a baseline period (+), you will be asked to either imagine a motor movement when you see the \u2022 cue, or to maintain a resting state when you see a blank screen.\n\nAfter each task, you will evaluate your performance.\n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
+        self.instructions = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period (+), you will be asked to either imagine a motor movement when you see the \u2022 cue, or to maintain a resting state when you see a blank screen.\n\nAfter each task, you will evaluate your performance.\n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
         self.show_instructions = True
         
         self.setup_ui()
@@ -153,17 +157,45 @@ class EEGMarkerGUI:
         subj_frame = ttk.LabelFrame(left_frame, text="Subject Information")
         subj_frame.grid(row=left_row, column=0, sticky="ew", pady=(0, 10), padx=5)
         left_row += 1
+
+        # Auto management checkbox
+        ttk.Checkbutton(subj_frame, text="Auto-manage participant numbers", 
+            variable=self.auto_participant_management,
+            command=self.toggle_auto_management).grid(
+                row=0, column=0, columnspan=2, sticky="w", padx=5, pady=2)
         
-        # Subject number
-        ttk.Label(subj_frame, text="Subject Number:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
-        ttk.Entry(subj_frame, textvariable=self.subject_number, width=10).grid(row=0, column=1, sticky="w", padx=5, pady=2)
+        # Debug mode checkbox
+        ttk.Checkbutton(subj_frame, text="Debug mode (separate files)", 
+              variable=self.debug_mode).grid(
+                row=1, column=0, columnspan=2, sticky="w", padx=5, pady=2)
         
-        # Pre/Post assessment
-        ttk.Label(subj_frame, text="Assessment Type:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
-        assessment_frame = ttk.Frame(subj_frame)
-        assessment_frame.grid(row=1, column=1, sticky="w", padx=5, pady=2)
-        ttk.Radiobutton(assessment_frame, text="Pre", variable=self.is_post_assessment, value=False).pack(side="left")
-        ttk.Radiobutton(assessment_frame, text="Post", variable=self.is_post_assessment, value=True).pack(side="left")
+        # Manual subject number (disabled when auto mode is on)
+        ttk.Label(subj_frame, text="Subject Number:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
+        self.subject_entry = ttk.Entry(subj_frame, textvariable=self.subject_number, width=10)
+        self.subject_entry.grid(row=2, column=1, sticky="w", padx=5, pady=2)
+
+        # Manual assessment type (disabled when auto mode is on)
+        ttk.Label(subj_frame, text="Assessment Type:").grid(row=3, column=0, sticky="w", padx=5, pady=2)
+        self.assessment_frame = ttk.Frame(subj_frame)
+        self.assessment_frame.grid(row=3, column=1, sticky="w", padx=5, pady=2)
+        self.pre_radio = ttk.Radiobutton(self.assessment_frame, text="Pre", variable=self.is_post_assessment, value=False)
+        self.pre_radio.pack(side="left")
+        self.post_radio = ttk.Radiobutton(self.assessment_frame, text="Post", variable=self.is_post_assessment, value=True)
+        self.post_radio.pack(side="left")
+        self.pre_radio = ttk.Radiobutton(self.assessment_frame, text="Pre", 
+                                        variable=self.is_post_assessment, value=False,
+                                        command=self.on_assessment_type_change)
+        self.post_radio = ttk.Radiobutton(self.assessment_frame, text="Post", 
+                                        variable=self.is_post_assessment, value=True,
+                                        command=self.on_assessment_type_change)
+
+        # Status label to show current settings
+        self.participant_status_label = ttk.Label(subj_frame, text="", foreground="blue")
+        self.participant_status_label.grid(row=4, column=0, columnspan=2, sticky="w", padx=5, pady=2)
+
+
+        # Update participant info on startup
+        self.root.after(100, self.update_participant_info)
 
         # --- Serial Port Selection ---
         serial_frame = ttk.LabelFrame(left_frame, text="Serial Port Settings")
@@ -338,6 +370,125 @@ class EEGMarkerGUI:
         
         # Add a trace to handle monitor selection changes via the dropdown
         self.monitor_dropdown.bind('<<ComboboxSelected>>', self.on_monitor_selected)
+
+    def toggle_auto_management(self):
+        """Enable/disable manual controls based on auto management setting"""
+        if self.auto_participant_management.get():
+            self.subject_entry.config(state="disabled")
+            self.pre_radio.config(state="disabled")
+            self.post_radio.config(state="disabled")
+            self.update_participant_info()
+        else:
+            self.subject_entry.config(state="normal")
+            self.pre_radio.config(state="normal")
+            self.post_radio.config(state="normal")
+            self.participant_status_label.config(text="Manual mode - set subject and assessment type above")
+
+    def ensure_save_directory(self):
+        """Create save directory if it doesn't exist"""
+        if not os.path.exists(self.save_directory):
+            os.makedirs(self.save_directory)
+            self.log(f"Created save directory: {self.save_directory}")
+
+    def get_existing_participants(self):
+        """Scan save directory for existing participant files"""
+        self.ensure_save_directory()
+        participants = {}
+        
+        try:
+            for filename in os.listdir(self.save_directory):
+                if filename.startswith('S') and ('_PRE_' in filename or '_POST_' in filename):
+                    # Extract participant number
+                    parts = filename.split('_')
+                    if len(parts) >= 2:
+                        participant_num = parts[0][1:]  # Remove 'S' prefix
+                        assessment_type = parts[1]
+                        
+                        if participant_num not in participants:
+                            participants[participant_num] = {'PRE': False, 'POST': False}
+                        
+                        participants[participant_num][assessment_type] = True
+            
+            return participants
+        except Exception as e:
+            self.log(f"Error scanning participants: {e}")
+            return {}
+        
+    # Call this when assessment type changes (add to toggle methods or assessment radio button callbacks)
+    def on_assessment_type_change(self):
+        """Called when assessment type changes"""
+        self.update_video_ui_status()
+        if self.auto_participant_management.get():
+            self.update_participant_info()
+
+    def get_next_participant_info(self):
+        """Determine next participant number and assessment type"""
+        participants = self.get_existing_participants()
+        
+        if not participants:
+            # No existing participants
+            return "001", False  # First participant, PRE assessment
+        
+        # Find the highest participant number
+        max_num = max([int(p) for p in participants.keys()])
+        
+        # Check if current max participant needs POST assessment
+        max_num_str = f"{max_num:03d}"
+        if max_num_str in participants and not participants[max_num_str]['POST']:
+            # Current participant needs POST assessment
+            return max_num_str, True
+        
+        # Need new participant for PRE assessment
+        next_num = max_num + 1
+        return f"{next_num:03d}", False
+
+    def update_participant_info(self):
+        """Update participant number and assessment type automatically"""
+        if not self.auto_participant_management.get():
+            return
+        
+        try:
+            participant_num, is_post = self.get_next_participant_info()
+            self.subject_number.set(participant_num)
+            self.is_post_assessment.set(is_post)
+            
+            assessment_type = "POST" if is_post else "PRE"
+            status_text = f"Auto: Participant {participant_num} - {assessment_type} assessment"
+            self.participant_status_label.config(text=status_text)
+            
+            self.log(f"Auto-assigned: Participant {participant_num}, {assessment_type} assessment")
+            
+        except Exception as e:
+            self.log(f"Error updating participant info: {e}")
+            self.participant_status_label.config(text="Error in auto-assignment")
+
+    def check_file_exists(self, base_filename):
+        """Check if a file already exists to prevent overwrites"""
+        full_path = os.path.join(self.save_directory, base_filename)
+        return os.path.exists(full_path)
+
+    def generate_safe_filename(self, base_name, extension):
+        """Generate a safe filename that won't overwrite existing files"""
+        subject = self.subject_number.get().strip()
+        session_type = "POST" if self.is_post_assessment.get() else "PRE"
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        if self.debug_mode.get():
+            # Debug mode - separate naming
+            filename = f"DEBUG_S{subject}_{session_type}_{base_name}_{timestamp_str}.{extension}"
+        else:
+            # Normal mode
+            filename = f"S{subject}_{session_type}_{base_name}_{timestamp_str}.{extension}"
+        
+        # Check if file exists and add counter if needed
+        counter = 1
+        original_filename = filename
+        while self.check_file_exists(filename):
+            name_parts = original_filename.rsplit('.', 1)
+            filename = f"{name_parts[0]}_v{counter}.{name_parts[1]}"
+            counter += 1
+        
+        return filename
 
     def toggle_randomization_file(self):
         """Enable/disable randomization file controls based on checkbox"""
@@ -756,8 +907,8 @@ class EEGMarkerGUI:
                 text='Press Y for YES or N for NO',
                 font='Arial',
                 pos=(0, -0.2),
-                height=0.07,
-                wrapWidth=None,
+                height=0.1,
+                wrapWidth=1.5,
                 color='white',
                 bold=True,
                 opacity=1.0
@@ -768,8 +919,8 @@ class EEGMarkerGUI:
                 text=self.instructions,
                 font='Arial',
                 pos=(0, 0),
-                height=0.05,  # Smaller text for longer content
-                wrapWidth=1.8,  # Allow text wrapping
+                height=0.08,  # Smaller text for longer content
+                wrapWidth=1.5,  # Allow text wrapping
                 color='white',
                 alignText='center',
                 anchorHoriz='center',
@@ -783,7 +934,7 @@ class EEGMarkerGUI:
                 text=self.landing_text,
                 font='Arial',
                 pos=(0, 0),
-                height=0.07,
+                height=0.1,
                 wrapWidth=1.8,
                 color='white',
                 alignText='center',
@@ -848,23 +999,40 @@ class EEGMarkerGUI:
                         if 'space' in keys and self.show_instructions:
                             self.show_instructions = False
                             
-                            # Check if we should show video
-                            if self.use_instruction_video.get() and self.video_stimulus:
+                            # Check if we should show video (only for PRE assessments)
+                            is_pre_assessment = not self.is_post_assessment.get()
+                            
+                            if (self.use_instruction_video.get() and 
+                                self.video_stimulus and 
+                                is_pre_assessment):
                                 self.showing_video = True
                                 self.video_stimulus.seek(0)  # Reset to beginning
                                 self.video_stimulus.play()
-                                self.log("Instructions complete, playing instruction video")
+                                self.log("PRE assessment: Playing instruction video")
                             else:
-                                # No video, go to landing page
-                                self.showing_landing = True
-                                self.landing_stim.draw()
-                                self.psychopy_window.flip()
-                                self.log("Instructions complete, showing landing page")
+                                # No video for POST assessment or no video selected
+                                if not is_pre_assessment:
+                                    self.log("POST assessment: Skipping instruction video")
+                                
+                                # Go to landing page or straight to trials
+                                if self.use_instruction_video.get() and is_pre_assessment:
+                                    # PRE assessment but no video available
+                                    self.showing_landing = True
+                                    self.landing_stim.draw()
+                                    self.psychopy_window.flip()
+                                    self.log("PRE assessment: No video available, showing landing page")
+                                else:
+                                    # POST assessment - skip directly to trials
+                                    self.psychopy_window.flip()  # Clear screen
+                                    self.log("Instructions complete, starting trials")
+                                    self.root.after(100, self.start_trial)
                         
                         # Handle landing page responses
                         if self.showing_landing:
-                            if 'y' in keys or 'Y' in keys:
-                                # Replay video
+                            is_pre_assessment = not self.is_post_assessment.get()
+                            
+                            if ('y' in keys or 'Y' in keys) and is_pre_assessment:
+                                # Replay video (only available for PRE assessments)
                                 self.showing_landing = False
                                 if self.video_stimulus:
                                     self.showing_video = True
@@ -873,6 +1041,7 @@ class EEGMarkerGUI:
                                     self.log("Replaying instruction video")
                                 else:
                                     # If no video available, just show landing again
+                                    self.create_landing_stimulus()
                                     self.landing_stim.draw()
                                     self.psychopy_window.flip()
                                     self.log("No video to replay")
@@ -883,6 +1052,10 @@ class EEGMarkerGUI:
                                 self.psychopy_window.flip()  # Clear screen
                                 self.log("Landing page complete, starting trials")
                                 self.root.after(100, self.start_trial)
+                            
+                            elif ('y' in keys or 'Y' in keys) and not is_pre_assessment:
+                                # Y pressed during POST assessment - ignore and log
+                                self.log("POST assessment: Video replay not available")
                         
                         # Handle evaluation keys (only when waiting for evaluation response)
                         elif self.waiting_for_response:
@@ -992,7 +1165,79 @@ class EEGMarkerGUI:
         except Exception as e:
             self.log(f"Error hiding evaluation screen: {e}")
 
+    # In create_psychopy_window, modify the landing page text creation:
+    def update_landing_text(self):
+        """Update landing page text based on assessment type"""
+        is_pre_assessment = not self.is_post_assessment.get()
+        
+        if is_pre_assessment:
+            self.landing_text = "Press Y to replay the instruction video\nPress SPACEBAR or N to begin the experiment"
+        else:
+            self.landing_text = "Press SPACEBAR or N to begin the experiment"
+
+    def create_landing_stimulus(self):
+        """Create or update the landing page stimulus"""
+        self.update_landing_text()
+        
+        if hasattr(self, 'landing_stim'):
+            self.landing_stim.setText(self.landing_text)
+        else:
+            self.landing_stim = visual.TextStim(
+                win=self.psychopy_window,
+                text=self.landing_text,
+                font='Arial',
+                pos=(0, 0),
+                height=0.07,
+                wrapWidth=1.8,
+                color='white',
+                alignText='center',
+                anchorHoriz='center',
+                anchorVert='center',
+                bold=True
+            )
+
+    def update_instruction_text(self):
+        """Update instruction text based on assessment type"""
+        is_pre_assessment = not self.is_post_assessment.get()
+        
+        if is_pre_assessment:
+            self.instruction_text = ("Welcome to the Motor Imagery Assessment.\n\n\n\n"
+                                "You will be asked to either imagine a motor movement or to rest.\n\n"
+                                "After the instructions, you will see a demonstration video.\n\n"
+                                "After each task, you will evaluate your performance.\n\n"
+                                "Press SPACEBAR to begin.")
+        else:
+            self.instruction_text = ("Welcome back to the Motor Imagery Assessment.\n\n\n\n"
+                                "This is your post-assessment session.\n\n"
+                                "The procedure is the same as before:\n"
+                                "Imagine motor movements or rest as instructed.\n\n"
+                                "Press SPACEBAR to begin.")
+        
+        # Update the stimulus if it exists
+        if hasattr(self, 'instruction_stim'):
+            self.instruction_stim.setText(self.instruction_text)
+
     def start_session(self):
+
+        # Update participant info if in auto mode
+        if self.auto_participant_management.get():
+            self.update_participant_info()
+        
+        # Check for existing files to prevent overwrites
+        subject = self.subject_number.get().strip()
+        session_type = "POST" if self.is_post_assessment.get() else "PRE"
+        
+        if not self.debug_mode.get():
+            # Check if files already exist for this participant/session
+            test_filename = f"S{subject}_{session_type}_eval_results_"
+            existing_files = [f for f in os.listdir(self.save_directory) 
+                            if f.startswith(test_filename)] if os.path.exists(self.save_directory) else []
+            
+            if existing_files and not messagebox.askyesno("File Exists", 
+                f"Files already exist for Subject {subject} {session_type} assessment.\n"
+                f"Continue anyway? (Files will be versioned to prevent overwrites)"):
+                return
+            
         # --- Input Validation ---
         # Check subject number
         subject = self.subject_number.get().strip()
@@ -1115,14 +1360,14 @@ class EEGMarkerGUI:
             return
             
         try:
-            # Create filename with subject number and pre/post info
+            self.ensure_save_directory()
+            filename = self.generate_safe_filename("marker_log", "txt")
+            filepath = os.path.join(self.save_directory, filename)
+            
             subject = self.subject_number.get().strip()
             session_type = "POST" if self.is_post_assessment.get() else "PRE"
-            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
             
-            filename = f"{self.save_dir}S{subject}_{session_type}_marker_log_{timestamp_str}.txt"
-            
-            with open(filename, 'w') as f:
+            with open(filepath, 'w') as f:
                 f.write(f"Session Marker Log - Subject {subject} - {session_type} Assessment\n")
                 f.write(f"Date/Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write("="*70 + "\n\n")
@@ -1133,7 +1378,7 @@ class EEGMarkerGUI:
                     relative_time = timestamp - self.recording_start_time
                     f.write(f"{relative_time:15.4f} | {marker}\n")
             
-            self.log(f"Marker log exported to {filename}")
+            self.log(f"Marker log exported to {filepath}")
             messagebox.showinfo("Export Complete", f"Marker log saved to {filename}")
             
         except Exception as e:
@@ -1147,14 +1392,17 @@ class EEGMarkerGUI:
             return
         
         try:
-            # Create filename with subject number and pre/post info
+            self.ensure_save_directory()
+            txt_filename = self.generate_safe_filename("eval_results", "txt")
+            csv_filename = self.generate_safe_filename("eval_results", "csv")
+            txt_filepath = os.path.join(self.save_directory, txt_filename)
+            csv_filepath = os.path.join(self.save_directory, csv_filename)
+            
             subject = self.subject_number.get().strip()
             session_type = "POST" if self.is_post_assessment.get() else "PRE"
-            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
             
-            filename = f"{self.save_dir}S{subject}_{session_type}_eval_results_{timestamp_str}.txt"
-            
-            with open(filename, 'w') as f:
+            # Export text file (same as before but with new filepath)
+            with open(txt_filepath, 'w') as f:
                 f.write(f"Evaluation Results - Subject {subject} - {session_type} Assessment\n")
                 f.write(f"Date/Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write("="*70 + "\n\n")
@@ -1187,19 +1435,20 @@ class EEGMarkerGUI:
                 total_pct = (total_yes / len(self.eval_results)) * 100
                 f.write(f"Total Trials: {len(self.eval_results)}, YES responses: {total_yes} ({total_pct:.1f}%)\n")
             
-            self.log(f"Evaluation results exported to {filename}")
-            messagebox.showinfo("Export Complete", f"Evaluation results saved to {filename}")
-            
-            # Also save as CSV for data analysis
-            csv_filename = f"{self.save_dir}S{subject}_{session_type}_eval_results_{timestamp_str}.csv"
-            with open(csv_filename, 'w', newline='') as f:
+            # Export CSV file
+            with open(csv_filepath, 'w', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow(['Subject', 'Session', 'Trial', 'Activity', 'Response', 'ResponseTime'])
                 
                 for trial, activity, response, response_time in self.eval_results:
                     writer.writerow([subject, session_type, trial, activity, response, f"{response_time:.4f}"])
             
-            self.log(f"Evaluation results also saved as CSV: {csv_filename}")
+            self.log(f"Results exported to {txt_filename} and {csv_filename}")
+            messagebox.showinfo("Export Complete", f"Results saved to data folder")
+            
+            # Update participant info for next session
+            if self.auto_participant_management.get():
+                self.root.after(1000, self.update_participant_info)
             
         except Exception as e:
             self.log(f"Error exporting evaluation results: {e}")
@@ -1277,6 +1526,25 @@ class EEGMarkerGUI:
         self.log("Evaluation phase started - waiting for Y/N keypress")
         
         # Note: No timeout - waiting for user keystroke
+
+    def update_video_ui_status(self):
+        """Update video UI elements to show availability based on assessment type"""
+        is_pre_assessment = not self.is_post_assessment.get()
+        
+        if hasattr(self, 'video_frame'):  # If video frame exists in UI
+            if is_pre_assessment:
+                status_text = "Video will be shown during PRE assessment"
+                color = "blue"
+            else:
+                status_text = "Video will be skipped during POST assessment"
+                color = "orange"
+            
+            # Add or update status label in video frame
+            if not hasattr(self, 'video_status_label'):
+                self.video_status_label = ttk.Label(self.video_frame, text="", foreground=color)
+                self.video_status_label.grid(row=2, column=0, columnspan=2, sticky="w", padx=5, pady=2)
+            
+            self.video_status_label.config(text=status_text, foreground=color)
 
     def evaluation_response(self, response):
         """Handle yes/no response during evaluation period."""
