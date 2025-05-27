@@ -13,8 +13,17 @@ Joseph Hong
 
 # =============================================================
 # =============================================================
+
+import tensorflow as tf
+
+# Disable GPU
+tf.config.set_visible_devices([], 'GPU')
+
+# Or set CPU as the only visible device
+tf.config.set_visible_devices(tf.config.list_physical_devices('CPU'), 'CPU')
+
 # Includes
-from BCI_Functions import preprocess_raw
+from bci_functions import preprocess_raw
 # from Classifiers import All_Models as classifiers
 from models.atcnet_new import ATCNet_
 
@@ -25,6 +34,7 @@ import argparse
 import mne
 import threading
 import tkinter as tk
+
 
 # =============================================================
 # =============================================================
@@ -44,7 +54,7 @@ ref_weights_dir = "./reference_weights/"
 saved_weights_dir = "./saved_weights/"
 results_dir = "./results/"
 shap_dir = "./shap/"
-weight_filename = "ATCNet_Xon_NEW" #<>.weights.h5
+weight_filename = "FINAL_ATCNet_BCI" #<>.weights.h5
 
 # Emulator Variables
 vhdr_name_loc = ""
@@ -56,8 +66,9 @@ streamer_ip = "0.0.0.0"
 streamer_port = 0
 
 # Preprocessing Variables (Editable)
-f_list = [7, 49]
+f_list = [1, 49]
 new_freq = None
+expected_num_channels = 60
 
 # Classifier Variables (Editable)
 num_classes = 2
@@ -80,7 +91,7 @@ window_size_us = window_size_ms * 1000  # Microseconds
 seconds_to_read = 600
 
 # OPERATING WINDOW - This is the number of seconds you want to use for classification
-operating_window_size_s = 1
+operating_window_size_s = 2
 operating_window_size_ms = operating_window_size_s * 1000  # Milliseconds
 operating_window_size_us = operating_window_size_s * 1000  # Microseconds
 operating_overlap_percent = 50
@@ -208,7 +219,7 @@ if __name__ == "__main__":
 
     # Set Up Classification Model - TBD
     logTime("Compiling Model...")
-    model = ATCNet_(num_classes, num_channels, epoch_duration)
+    model = ATCNet_(num_classes, expected_num_channels, epoch_duration)
     model.load_weights(ref_weights_dir + f"{weight_filename}.weights.h5", skip_mismatch=True)
     logTime("Model Compilation Complete.")
     # Note: We may need to move this earlier for the livestream due to the possibility of the TCP buffer overflowing, but this would affect the epoch_duration definition.
@@ -227,9 +238,11 @@ if __name__ == "__main__":
 
             # If acquisition is successful, extend buffer
             if data is not None:
-                # print(data)
+                # print(np.shape(data))
                 # Add to the data buffer
                 data_buffer = np.concatenate((data_buffer, data), axis=1)
+
+                # print(np.shape(data_buffer))
 
                 # Check if buffer has reached window size, then process
                 if len(data_buffer[0]) >= window_size_us // sampling_interval_us:

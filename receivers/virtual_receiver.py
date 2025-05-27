@@ -2,15 +2,17 @@ import time
 import numpy as np
 import mne
 
+data_dir = "./data/rawdata/mit/"
+
 class Emulator:
     def __init__(self, fileName="MIT33"):
-        self.vhdr_file = f"../RawData/{fileName}.vhdr"
-        self.eeg_file = f"../RawData/{fileName}.eeg"
+        self.vhdr_file = f"{data_dir}{fileName}.vhdr"
+        self.eeg_file = f"{data_dir}{fileName}.eeg"
         self.channel_count = 0
         self.sampling_frequency = 0
         self.sampling_interval_us = 0
         self.channel_names = []
-        self.latency = 0.016
+        self.latency = 0.0016
         self.chunk_size = None
         self.current_index = 0
         self.raw_data = None
@@ -32,7 +34,7 @@ class Emulator:
         )
         print(f"Running EEG Emulator with {self.channel_count} channels at {self.sampling_frequency} Hz")
         print(f"Chunk size is set to: {self.chunk_size} per channel.")
-        return self.sampling_frequency, self.channel_names, self.channel_count,  self.raw_data.get_data()
+        return self.sampling_frequency, self.channel_names, self.channel_count,  np.zeros((self.channel_count,0))
 
     def get_data(self):
         time.sleep(self.latency)
@@ -41,6 +43,8 @@ class Emulator:
         chunk_end = min(self.current_index + self.chunk_size, total_samples)
         data_chunk = self.raw_data._data[:, self.current_index:chunk_end]
         self.current_index = chunk_end
+
+        # print(np.shape(data_chunk))
 
         return data_chunk
 

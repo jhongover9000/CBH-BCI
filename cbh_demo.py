@@ -10,6 +10,13 @@ Before running with WSL, make sure to set up port forwarding via cmd (Admin)
 Joseph Hong
 
 '''
+import tensorflow as tf
+
+# Disable GPU
+tf.config.set_visible_devices([], 'GPU')
+
+# Or set CPU as the only visible device
+tf.config.set_visible_devices(tf.config.list_physical_devices('CPU'), 'CPU')
 
 # =============================================================
 # =============================================================
