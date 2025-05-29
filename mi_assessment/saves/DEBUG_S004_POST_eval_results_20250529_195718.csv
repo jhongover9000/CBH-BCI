@@ -1,0 +1,6 @@
+Subject,Session,Trial,Activity,Response,ResponseTime
+004,POST,1,imagery,YES,2.0089
+004,POST,2,rest,YES,2.5599
+004,POST,3,rest,NO,1.9282
+004,POST,4,imagery,YES,1.0401
+004,POST,5,rest,YES,4.3406

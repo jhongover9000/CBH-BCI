@@ -32,7 +32,7 @@ class Marker:
 # LivestreamReceiver
 class LivestreamReceiver:
     # Initialization, takes connection IP and port number as arguments
-    def __init__(self, address="169.254.150.127", port=51244):
+    def __init__(self, address="169.254.1.147", port=51244):
         self.address = address
         self.port = port
         self.socket = socket(AF_INET, SOCK_STREAM)

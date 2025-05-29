@@ -896,7 +896,7 @@ class EEGMarkerGUI:
                 font='Arial',
                 pos=(0, 0.0),
                 height=0.1,
-                wrapWidth=None,
+                wrapWidth=2,
                 color='white',
                 bold=True,
                 opacity=1.0
@@ -920,7 +920,7 @@ class EEGMarkerGUI:
                 font='Arial',
                 pos=(0, 0),
                 height=0.08,  # Smaller text for longer content
-                wrapWidth=1.5,  # Allow text wrapping
+                wrapWidth=1.3,  # Allow text wrapping
                 color='white',
                 alignText='center',
                 anchorHoriz='center',
@@ -950,10 +950,10 @@ class EEGMarkerGUI:
                         win=self.psychopy_window,
                         filename=self.video_file_path.get(),
                         pos=(0, 0),
-                        size=None,  # Use original video size
+                        size=[1920,1080],  # adjust for monitor!!
                         flipVert=False,
                         flipHoriz=False,
-                        volume=1.0
+                        volume=0.0
                     )
                     self.log("Video stimulus created successfully")
                 except Exception as e:
