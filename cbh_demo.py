@@ -78,7 +78,7 @@ def logTime(message):
 
 # =============================================================
 # =============================================================
-# EXECUTION
+# EXECUTION 
 
 # Argument parsing
 parser = argparse.ArgumentParser(description="BCI System")
@@ -113,8 +113,8 @@ elif args.natural:
     # Assign EEG Dataset
     dataset_path = f"{data_dir}{DATASET_NATURAL}"
 
-    from broadcasting import TCP_Server
-    bci = TCP_Server.TCPServer(tcp_ip, tcp_port)
+    from broadcasting import TCP_Server_Offloaded
+    bci = TCP_Server_Offloaded.TCPServer(tcp_ip, tcp_port)
     
 
 else:
@@ -167,7 +167,7 @@ def select_label(label):
 
 # If natural, connecting to XR Sim
 if(args.natural):
-    gui = TCP_Server.BCIGUI(bci, model, X_all, y, subject_ids)
+    gui = TCP_Server_Offloaded.BCIGUI(bci, model, X_all, y, subject_ids)
     gui.run()
 # Else, not
 else:

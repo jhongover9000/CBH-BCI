@@ -21,7 +21,7 @@ from datetime import datetime
 
 from collections import Counter
 
-from broadcasting import TCP_Server
+from broadcasting import TCP_Server_Offloaded
 import tkinter as tk
 import threading
 import time
@@ -83,7 +83,7 @@ class CAIRReceiver:
 
         # If broadcasting classification (for further applications), set up UDP server
         if broadcast:
-            self.server = TCP_Server.TCPServer()
+            self.server = TCP_Server_Offloaded.TCPServer()
             self.server.initialize_connection()
 
         # Start GUI if a callback and bci instance are provided

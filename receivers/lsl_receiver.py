@@ -21,7 +21,7 @@ from datetime import datetime
 
 from collections import Counter
 
-from broadcasting import TCP_Server
+from broadcasting import TCP_Server_Offloaded
 import tkinter as tk
 import threading
 
@@ -68,11 +68,11 @@ class LSLReceiver:
         self.bci_instance = bci_instance
 
         print(f"Connected to EEG stream: {streams[0].name()}")
-        self.initialize_connection()
+        # self.initialize_connection()
 
         # If broadcasting classification (for further applications), set up UDP server
         if broadcast:
-            self.server = TCP_Server.TCPServer()
+            self.server = TCP_Server_Offloaded.TCPServer()
             self.server.initialize_connection()
 
         # Start GUI if a callback and bci instance are provided
@@ -129,9 +129,6 @@ class LSLReceiver:
         print(f"Channel Names: {self.channel_names}")
         print("===================================")
         print("Initial Data Shape:", np.shape(self.data))
-
-        
-
 
         return self.sampling_frequency, self.channel_names, self.channel_count, self.data
     

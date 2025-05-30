@@ -15,6 +15,8 @@ from struct import *
 import numpy as np
 import mne
 from datetime import datetime
+from broadcasting import TCP_Server_Offloaded
+
 
 #==========================================================================================
 #==========================================================================================
@@ -32,19 +34,28 @@ class Marker:
 # LivestreamReceiver
 class LivestreamReceiver:
     # Initialization, takes connection IP and port number as arguments
-    def __init__(self, address="169.254.1.147", port=51244):
+    def __init__(self, address="169.254.1.147", port=51244, broadcast = False,):
         self.address = address
         self.port = port
         self.socket = socket(AF_INET, SOCK_STREAM)
-        self.channel_count = 0
-        self.sampling_interval_us = 0
-        self.sampling_frequency = 0
+        self.channel_count = 60
+        self.sampling_interval_us = 1000000
+        self.sampling_frequency = 1000
         self.resolutions = []
         self.channel_names = []
         self.info = None
         self.last_block = -1
         self.first_packet = True
         self.data = np.zeros((self.channel_count,0))
+        
+        # For sending classification results to different application via network interface
+        self.broadcasting = broadcast
+        self.server = None
+
+        # If broadcasting classification (for further applications), set up UDP server
+        if broadcast:
+            self.server = TCP_Server_Offloaded.TCPServer()
+            self.server.initialize_connection()
 
     # Read Data from Connection
     def recv_data(self, requested_size):
@@ -172,9 +183,10 @@ class LivestreamReceiver:
         if prediction == 0:
             print("Rest")
         elif prediction == 1:
-            print("Flex")
+            if self.broadcasting:
+                self.server.send_message_udp("TAP")
         else:
-            print("Extend")
+            print("??")
 
     # Disconnect
     def disconnect(self):

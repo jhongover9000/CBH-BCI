@@ -304,10 +304,13 @@ if __name__ == "__main__":
                         logTime(f"Finished {seconds_to_read} seconds:")
                 # Buffer Size Check End
             # Acquisition Check End
+            else:
+                print("data is null")
         # Catch Errors in Acquisition
         # except Exception as loop_error:
         #     print(f"Error in main loop: {loop_error}")
         #     break
+        
         # Try/Except End
     # Main Loop End
 

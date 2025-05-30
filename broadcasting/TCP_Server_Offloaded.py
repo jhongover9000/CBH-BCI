@@ -11,27 +11,29 @@ from datetime import datetime
 import os
 
 class TCPServer:
-    def __init__(self, host='127.0.0.1', tcp_port=6550, buffer_size=1024):
+    def __init__(self, host='0.0.0.0', tcp_port=9999, udp_port=5005, buffer_size=1024):
         self.host = host
         self.tcp_port = tcp_port
+        self.udp_port = udp_port  # Port to send UDP messages
         self.buffer_size = buffer_size
         self.tcp_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.udp_server_socket = None  # UDP Socket
         self.client_conn = None
         self.client_address = None
+        self.quest_ip = None  # To store the Quest 3 IP
         self.running = True
 
     def initialize_connection(self):
         """Start the TCP server and wait for a single client to connect."""
         local_ip = TCPServer.get_local_ip()
         print(f"Your local IP is likely: {local_ip}")
-        print(f"Starting TCP server on {self.host}:{self.tcp_port}")
+        print("Ensure both devices are on the same Wi-Fi and Python/ports 9999 (TCP) and 12345 (UDP) are allowed through firewall.")
 
         self.tcp_server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             self.tcp_server_socket.bind((self.host, self.tcp_port))
             self.tcp_server_socket.listen(1)
             print(f"[LISTENING] TCP Server is listening on {self.host}:{self.tcp_port}")
-            
             self.client_conn, self.client_address = self.tcp_server_socket.accept()
             print(f"[CONNECTED] Client connected from {self.client_address}")
 
@@ -42,10 +44,18 @@ class TCPServer:
             print(f"[ERROR] Server initialization failed: {e}")
             self.disconnect()
 
+    def create_quest_send_socket(self):
+        """Create a UDP socket to send messages to the Quest 3."""
+        try:
+            self.udp_server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            print(f"[INFO] UDP send socket created")
+        except socket.error as e:
+            print(f"[ERROR] Failed to create UDP send socket: {e}")
+
     def listen_to_client_tcp(self):
         """Continuously receive messages from the client over TCP."""
         try:
-            while self.running and self.client_conn:
+            while self.running:
                 data = self.client_conn.recv(self.buffer_size)
                 if not data:
                     print(f"[DISCONNECTED] Client {self.client_address} disconnected (TCP).")
@@ -54,14 +64,14 @@ class TCPServer:
                 message = data.decode('utf-8').strip()
                 print(f"[RECEIVED TCP] From {self.client_address}: {message}")
 
-                # Handle client connection confirmation
-                if message == "CLIENT_CONNECTED":
-                    print(f"[INFO] Client confirmed connection")
-                    self.send_message_tcp("SERVER_READY")
-                    continue
+                # Handle the initial IP address message from the Quest 3
+                if message.startswith("IP:"):
+                    self.quest_ip = message.split(":")[1]
+                    print(f"[INFO] Quest 3 IP address: {self.quest_ip}")
+                    self.create_quest_send_socket() #create the udp socket
+                    continue  # Important:  Don't try to process as a regular command
 
-                # Process other messages from client if needed
-                print(f"[INFO] Received message from client: {message}")
+                #  Process other TCP messages if needed,  e.g.,  a confirmation from the Quest.
 
         except Exception as e:
             print(f"[ERROR] Error in TCP communication: {e}")
@@ -72,24 +82,28 @@ class TCPServer:
         """Send a message to the connected client over TCP."""
         if self.client_conn:
             try:
-                print(f"[SENDING TCP] To client: {message}")
+                print(f"[ACTION] Sending TCP message: {message}.")
                 self.client_conn.sendall(message.encode('utf-8'))
-                return True
             except Exception as e:
                 print(f"[ERROR] Failed to send TCP message: {e}")
-                return False
-        else:
-            print(f"[WARNING] No client connected. Cannot send message: {message}")
-            return False
 
-    def is_client_connected(self):
-        """Check if a client is currently connected."""
-        return self.client_conn is not None and self.running
+    def send_message_udp(self, message):
+        """Send a message to the Quest 3 over UDP."""
+        if self.quest_ip and self.udp_server_socket:
+            try:
+                print(f"[ACTION] Sending UDP message to {self.quest_ip}:{self.udp_port}: {message}")
+                self.udp_server_socket.sendto(message.encode('utf-8'), (self.quest_ip, self.udp_port))
+            except Exception as e:
+                print(f"[ERROR] Failed to send UDP message: {e}")
+        elif not self.quest_ip:
+            print(f"[WARNING] Cannot send UDP message. Quest 3 IP address is unknown.")
+        elif not self.udp_server_socket:
+            print(f"[WARNING] Cannot send UDP message. UDP socket not initialized.")
 
     def use_classification(self, prediction):
         """Hook for external classifier integration."""
         if prediction == 1:
-            self.send_message_tcp("TAP")
+            self.send_message_udp("TAP")
 
     def disconnect(self):
         """Cleanly shut down the server and close connections."""
@@ -99,11 +113,15 @@ class TCPServer:
                 self.client_conn.close()
             except:
                 pass
-            self.client_conn = None
         try:
             self.tcp_server_socket.close()
         except:
             pass
+        if self.udp_server_socket:
+            try:
+                self.udp_server_socket.close()
+            except:
+                pass
         print("[SERVER SHUTDOWN]")
 
     @staticmethod
@@ -119,58 +137,39 @@ class TCPServer:
             s.close()
         return IP
 
+import tkinter as tk
+from tkinter import ttk
+import threading
+
 class ServerGUI:
     def __init__(self, server: TCPServer):
         self.server = server
         self.root = tk.Tk()
         self.root.title("Unity Experiment Controller")
-        self.root.geometry("500x500")
+        self.root.geometry("500x500")  # Increased size for better layout
         self.root.configure(bg="#f0f0f0")
 
         # --- Style ---
         self.style = ttk.Style()
-        
-        # Configure button style with better contrast
         self.style.configure("TButton",
                              padding=10,
-                             font=('Arial', 12, 'bold'),
+                             font=('Arial', 12),
+                             background="#4CAF50",  # Green
                              foreground="white")
-        
-        # Try to set background color (may not work on all systems)
-        try:
-            self.style.configure("TButton", background="#4CAF50")
-        except:
-            pass
-            
         self.style.map("TButton",
                          foreground=[('disabled', 'gray'),
-                                     ('active', 'white'),
-                                     ('pressed', 'white')],
-                         background=[('disabled', '#cccccc'),
-                                     ('active', '#45a049'),
-                                     ('pressed', '#45a049')])
+                                     ('active', 'white')],
+                         background=[('disabled', 'gray'),
+                                     ('active', '#388E3C')],  # Darker Green
+                         relief=[('pressed', 'sunken'),
+                                 ('!pressed', 'raised')])
 
-        self.style.configure("TLabel", font=('Arial', 12), background="#f0f0f0", foreground="black")
+        self.style.configure("TLabel", font=('Arial', 12), background="#f0f0f0")
         self.style.configure("TScale", background="#f0f0f0")
-        self.style.configure("TFrame", background="#f0f0f0")
-
-        # Connection status
-        self.status_frame = tk.Frame(self.root, bg="#f0f0f0")
-        self.status_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        self.status_label = tk.Label(self.status_frame, 
-                                    text="Status: Waiting for connection...", 
-                                    font=('Arial', 12, 'bold'),
-                                    bg="#f0f0f0",
-                                    fg="#333333")
-        self.status_label.pack()
-        
-        # Update status periodically
-        self.update_status()
 
         # --- Button Controls ---
-        self.button_frame = tk.Frame(self.root, bg="#f0f0f0")
-        self.button_frame.pack(fill=tk.X, padx=10, pady=10)
+        self.button_frame = ttk.Frame(self.root, padding=10, style="TFrame")
+        self.button_frame.pack(fill=tk.X)
 
         controls = [
             ("Swap Rig", "rigSwap"),
@@ -179,30 +178,15 @@ class ServerGUI:
             ("Finger Tap", "fingerTap"),
             ("Spawn Coins", "spawnCoins"),
             ("Stop Spawning", "stopSpawning"),
-            ("Raise Table", "raiseTable"),
-            ("Lower Table", "lowerTable"),
+            ("Raise Table", "raiseTable"),  # Changed to match Unity
+            ("Lower Table", "lowerTable"),  # Changed to match Unity
         ]
 
         row = 0
         col = 0
         for label, command in controls:
-            btn = tk.Button(self.button_frame, 
-                           text=label, 
-                           command=lambda c=command: self.send_command(c),
-                           font=('Arial', 10, 'bold'),
-                           bg="#4CAF50",
-                           fg="white",
-                           activebackground="#45a049",
-                           activeforeground="white",
-                           relief="raised",
-                           bd=2,
-                           padx=10,
-                           pady=5)
-            btn.grid(row=row, column=col, padx=3, pady=3, sticky="ew")
-            
-            # Make columns expand evenly
-            self.button_frame.grid_columnconfigure(col, weight=1)
-            
+            btn = ttk.Button(self.button_frame, text=label, command=lambda c=command: self.send_command(c), style="TButton")
+            btn.grid(row=row, column=col, padx=5, pady=5, sticky="ew")
             col += 1
             if col > 2:
                 col = 0
@@ -218,7 +202,7 @@ class ServerGUI:
             "spawnInterval": tk.DoubleVar(value=3.0),
         }
 
-        self.slider_values = {}
+        self.slider_values = {}  # Store displayed slider values
 
         slider_row = 0
         for name, var in self.variables.items():
@@ -233,111 +217,32 @@ class ServerGUI:
                                style="TScale")
             slider.grid(row=slider_row, column=1, padx=5, pady=5, sticky="ew")
             self.slider_values[name] = tk.StringVar()
-            self.slider_values[name].set(f"{var.get():.2f}")
+            self.slider_values[name].set(f"{var.get():.2f}")  # Initial value
             value_label = ttk.Label(self.slider_frame, textvariable=self.slider_values[name], style="TLabel")
             value_label.grid(row=slider_row, column=2, padx=5, pady=5, sticky="w")
-            
-            send_btn = tk.Button(self.slider_frame,
-                                text="Set",
-                                command=lambda n=name, v=var: self.send_variable(n, v.get()),
-                                font=('Arial', 9, 'bold'),
-                                bg="#9C27B0",
-                                fg="white",
-                                activebackground="#7B1FA2",
-                                activeforeground="white",
-                                relief="raised",
-                                bd=2,
-                                padx=8,
-                                pady=3)
+            send_btn = ttk.Button(self.slider_frame,
+                                   text="Set",
+                                   command=lambda n=name, v=var: self.send_variable(n, v.get()),
+                                   style="TButton")
             send_btn.grid(row=slider_row, column=3, padx=5, pady=5, sticky="w")
             slider_row += 1
 
-        # --- Test Buttons ---
-        self.test_frame = tk.Frame(self.root, bg="#f0f0f0")
-        self.test_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        test_tap_btn = tk.Button(self.test_frame, 
-                                text="Test TAP", 
-                                command=lambda: self.send_command("TAP"),
-                                font=('Arial', 10, 'bold'),
-                                bg="#FF9800",
-                                fg="white",
-                                activebackground="#F57C00",
-                                activeforeground="white",
-                                relief="raised",
-                                bd=2,
-                                padx=15,
-                                pady=5)
-        test_tap_btn.pack(side=tk.LEFT, padx=5)
-        
-        test_conn_btn = tk.Button(self.test_frame, 
-                                 text="Test Connection", 
-                                 command=self.test_connection,
-                                 font=('Arial', 10, 'bold'),
-                                 bg="#2196F3",
-                                 fg="white",
-                                 activebackground="#1976D2",
-                                 activeforeground="white",
-                                 relief="raised",
-                                 bd=2,
-                                 padx=15,
-                                 pady=5)
-        test_conn_btn.pack(side=tk.LEFT, padx=5)
-
         # --- Quit ---
-        self.quit_button = tk.Button(self.root, 
-                                    text="Quit", 
-                                    command=self.disconnect,
-                                    font=('Arial', 12, 'bold'),
-                                    bg="#f44336",
-                                    fg="white",
-                                    activebackground="#d32f2f",
-                                    activeforeground="white",
-                                    relief="raised",
-                                    bd=2,
-                                    padx=20,
-                                    pady=8)
+        self.quit_button = ttk.Button(self.root, text="Quit", command=lambda: self.disconnect(), style="TButton")
         self.quit_button.pack(pady=10)
 
-    def update_status(self):
-        """Update connection status display."""
-        if self.server.is_client_connected():
-            self.status_label.config(text="Status: Connected to Unity client", 
-                                   fg="#4CAF50")  # Green for connected
-        else:
-            self.status_label.config(text="Status: Waiting for connection...", 
-                                   fg="#FF5722")  # Red/orange for disconnected
-        
-        # Schedule next update
-        self.root.after(1000, self.update_status)
-
-    def test_connection(self):
-        """Send a test message to verify connection."""
-        if self.server.send_message_tcp("TEST_MESSAGE"):
-            messagebox.showinfo("Test", "Test message sent successfully!")
-        else:
-            messagebox.showerror("Test", "Failed to send test message. Check connection.")
+        # --- Styling for Frames
+        self.style.configure("TFrame", background="#f0f0f0")  # Light gray background
 
     def send_command(self, command):
-        """Send a command to the Unity client."""
-        if not self.server.is_client_connected():
-            messagebox.showwarning("Warning", "No client connected!")
-            return
-            
-        success = self.server.send_message_tcp(command)
-        if not success:
-            messagebox.showerror("Error", f"Failed to send command: {command}")
+        message = f"{command}"
+        print(f"[GUI] Sending UDP: {message}") #changed to UDP
+        self.server.send_message_udp(message) #changed to UDP
 
     def send_variable(self, name, value):
-        """Send a variable setting to the Unity client."""
-        if not self.server.is_client_connected():
-            messagebox.showwarning("Warning", "No client connected!")
-            return
-            
         message = f"{name}:{value:.2f}"
-        success = self.server.send_message_tcp(message)
-        if not success:
-            messagebox.showerror("Error", f"Failed to send variable: {message}")
+        print(f"[GUI] Sending UDP: {message}") #changed to UDP
+        self.server.send_message_udp(message) #changed to UDP
 
     def update_slider_value(self, name, event):
         """Update the displayed slider value."""
@@ -345,9 +250,9 @@ class ServerGUI:
         self.slider_values[name].set(f"{value:.2f}")
 
     def disconnect(self):
-        """Disconnect and close the application."""
         self.server.disconnect()
-        self.root.destroy()
+
+
 
 class BCIGUI:
     def __init__(self, server, model, X_all, y, subject_ids):
@@ -359,7 +264,7 @@ class BCIGUI:
 
         self.root = tk.Tk()
         self.root.title("CBH BCI Demo Control Panel")
-        self.root.geometry("600x800")
+        self.root.geometry("600x800")  # Increased size
         self.root.configure(bg="#f0f0f0")
 
         # --- Style ---
@@ -367,13 +272,13 @@ class BCIGUI:
         self.style.configure("TButton",
                              padding=10,
                              font=('Arial', 12),
-                             background="#4CAF50",
+                             background="#4CAF50",  # Green
                              foreground="white")
         self.style.map("TButton",
                          foreground=[('disabled', 'gray'),
                                      ('active', 'white')],
                          background=[('disabled', 'gray'),
-                                     ('active', '#388E3C')],
+                                     ('active', '#388E3C')],  # Darker Green
                          relief=[('pressed', 'sunken'),
                                  ('!pressed', 'raised')])
         self.style.configure("TLabel", font=('Arial', 12), background="#f0f0f0")
@@ -382,17 +287,12 @@ class BCIGUI:
 
         # --- Control Buttons ---
         self.control_frame = ttk.Frame(self.root, padding=10, style="TFrame")
-        self.control_frame.pack(pady=10, fill=tk.X)
+        self.control_frame.pack(pady=10, fill=tk.X)  # Fill frame horizontally
 
         buttons = [
-            ("Embodiment Start", "embodimentStart"),
-            ("Tutorial Start", "tutorialStart"),
-            ("Training Start", "trainingStart"),
-            ("Next Block", "nextBlock"),
             ("Swap Rig", "rigSwap"),
             ("Freeze Rig", "rigFreeze"),
             ("Unfreeze Rig", "rigUnfreeze"),
-            ("Align Hand", "alignHand"),
             ("Finger Tap", "fingerTap"),
             ("Spawn Coins", "spawnCoins"),
             ("Stop Spawning", "stopSpawning"),
@@ -404,7 +304,7 @@ class BCIGUI:
         for label, cmd in buttons:
             ttk.Button(self.control_frame,
                       text=label,
-                      command=lambda c=cmd: self.server.send_message_tcp(c),  # Changed to TCP
+                      command=lambda c=cmd: self.server.send_message_udp(c), #changed to UDP
                       width=20,
                       style="TButton").grid(row=button_row, column=button_col, padx=5, pady=5, sticky="ew")
             button_col += 1
@@ -414,7 +314,7 @@ class BCIGUI:
 
         # --- Sliders for Variables ---
         self.slider_frame = ttk.Frame(self.root, padding=10, style="TFrame")
-        self.slider_frame.pack(pady=10, fill=tk.X)
+        self.slider_frame.pack(pady=10, fill=tk.X)  # Fill frame
 
         self.vars = {
             "beltVelocity": tk.DoubleVar(value=0.1),
@@ -436,7 +336,7 @@ class BCIGUI:
                                style="TScale")
             slider.grid(row=slider_row, column=1, padx=5, pady=5, sticky="ew")
             self.slider_values[name] = tk.StringVar()
-            self.slider_values[name].set(f"{var.get():.2f}")
+            self.slider_values[name].set(f"{var.get():.2f}")  # Initial value
             value_label = ttk.Label(self.slider_frame, textvariable=self.slider_values[name], style="TLabel")
             value_label.grid(row=slider_row, column=2, padx=5, pady=5, sticky="w")
             ttk.Button(self.slider_frame,
@@ -447,20 +347,20 @@ class BCIGUI:
 
         # --- Classification Buttons ---
         self.classify_frame = ttk.LabelFrame(self.root, text="Classification", padding=10, style="TLabelframe")
-        self.classify_frame.pack(pady=10, fill=tk.X)
+        self.classify_frame.pack(pady=10, fill=tk.X)  # Fill frame
 
         self.motor_imagery_button = tk.Button(self.classify_frame,
                                              text="Motor Imagery",
                                              command=lambda: self.select_label(1),
                                              font=('Arial', 12),
-                                             bg="#00B050",
+                                             bg="#00B050",  # A shade of green
                                              fg="white")
         self.motor_imagery_button.pack(pady=5, fill=tk.X)
         self.rest_button = tk.Button(self.classify_frame,
                                            text="Rest",
                                            command=lambda: self.select_label(0),
                                            font=('Arial', 12),
-                                           bg="#3366FF",
+                                           bg="#3366FF",  # A shade of blue
                                            fg="white")
         self.rest_button.pack(pady=5, fill=tk.X)
 
@@ -480,8 +380,8 @@ class BCIGUI:
 
     def send_var(self, name, value):
         msg = f"{name}:{value:.2f}"
-        print(f"[GUI] Sending TCP: {msg}")
-        self.server.send_message_tcp(msg)  # Changed to TCP
+        print(f"[GUI] Sending UDP: {msg}") #changed to UDP
+        self.server.send_message_udp(msg) #changed to UDP
 
     def update_slider_value(self, name, event):
         """Update the displayed slider value."""
@@ -513,18 +413,27 @@ class BCIGUI:
     def run(self):
         self.root.mainloop()
 
+
+
 if __name__ == "__main__":
     local_ip = TCPServer.get_local_ip()
-    print(f"Your local IP is: {local_ip}")
-    print(f"Starting TCP server on localhost:6550")
+    print(f"Your local IP is likely: {local_ip}")
+    print("Ensure both devices are on the same Wi-Fi and Python/ports 9999 (TCP) and 12345 (UDP) are allowed through firewall.")
 
     server = TCPServer()
     # Start server in a background thread
     threading.Thread(target=server.initialize_connection, daemon=True).start()
 
     # Run GUI in main thread
-    gui = ServerGUI(server)
+    gui = ServerGUI(server) #changed to ServerGUI
     gui.root.mainloop()
+    # # Keep the main thread alive
+    # while True:
+    #     time.sleep(1)
 
-    # Clean shutdown
-    server.disconnect()
+    # Optional: keep main thread alive
+    try:
+        while server.running:
+            pass
+    except KeyboardInterrupt:
+        server.disconnect()
