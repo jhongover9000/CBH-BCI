@@ -15,7 +15,8 @@ from struct import *
 import numpy as np
 import mne
 from datetime import datetime
-from broadcasting import TCP_Server_Offloaded
+from broadcasting import TCP_Server
+import threading
 
 
 #==========================================================================================
@@ -54,8 +55,15 @@ class LivestreamReceiver:
 
         # If broadcasting classification (for further applications), set up UDP server
         if broadcast:
-            self.server = TCP_Server_Offloaded.TCPServer()
+            self.server = TCP_Server.TCPServer()
             self.server.initialize_connection()
+            print("Server Initialized")
+            # Start server in a background thread
+            # threading.Thread(target=self.server.initialize_connection, daemon=True).start()
+
+            # Run GUI in main thread
+            # gui = TCP_Server.ServerGUI(self.server)
+            # gui.root.mainloop()
 
     # Read Data from Connection
     def recv_data(self, requested_size):
@@ -184,7 +192,7 @@ class LivestreamReceiver:
             print("Rest")
         elif prediction == 1:
             if self.broadcasting:
-                self.server.send_message_udp("TAP")
+                self.server.send_message_tcp("TAP")
         else:
             print("??")
 

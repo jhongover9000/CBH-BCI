@@ -11,7 +11,7 @@ from datetime import datetime
 import os
 
 class TCPServer:
-    def __init__(self, host='127.0.0.1', tcp_port=6550, buffer_size=1024):
+    def __init__(self, host='127.0.0.1', tcp_port=65507, buffer_size=1024):
         self.host = host
         self.tcp_port = tcp_port
         self.buffer_size = buffer_size
@@ -22,8 +22,6 @@ class TCPServer:
 
     def initialize_connection(self):
         """Start the TCP server and wait for a single client to connect."""
-        local_ip = TCPServer.get_local_ip()
-        print(f"Your local IP is likely: {local_ip}")
         print(f"Starting TCP server on {self.host}:{self.tcp_port}")
 
         self.tcp_server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

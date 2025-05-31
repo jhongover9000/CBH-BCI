@@ -124,7 +124,7 @@ def initialize_bci(args):
     #     return lsl_receiver.LSLReceiver(broadcast = is_broadcasting)
     else:
         from receivers import livestream_receiver
-        return livestream_receiver.LivestreamReceiver()
+        return livestream_receiver.LivestreamReceiver(broadcast = args.broadcast)
     
 def start_plot(self):
         self.root = tk.Tk()
@@ -304,8 +304,6 @@ if __name__ == "__main__":
                         logTime(f"Finished {seconds_to_read} seconds:")
                 # Buffer Size Check End
             # Acquisition Check End
-            else:
-                print("data is null")
         # Catch Errors in Acquisition
         # except Exception as loop_error:
         #     print(f"Error in main loop: {loop_error}")
