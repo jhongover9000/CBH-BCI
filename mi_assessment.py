@@ -76,7 +76,7 @@ class EEGMarkerGUI:
 
         # --- Monitor Selection Variables ---
         self.available_monitors = []
-        self.selected_monitor = tk.IntVar(value=0)  # Default to primary monitor
+        self.selected_monitor = tk.IntVar(value=1)  # Default to primary monitor
 
         self.running = False
         self.current_trial = 0
@@ -215,10 +215,10 @@ class EEGMarkerGUI:
         self.dynamic_buttons.append(refresh_button)
         
         # Baud Rate
-        ttk.Label(serial_frame, text="Baud Rate:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
-        baud_dropdown = ttk.Combobox(serial_frame, textvariable=self.baud_rate, state="readonly", width=10,
-                                    values=[9600, 19200, 38400, 57600, 115200, 2000000])
-        baud_dropdown.grid(row=1, column=1, sticky="w", padx=5, pady=2)
+        # ttk.Label(serial_frame, text="Baud Rate:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        # baud_dropdown = ttk.Combobox(serial_frame, textvariable=self.baud_rate, state="readonly", width=10,
+        #                             values=[9600, 19200, 38400, 57600, 115200, 2000000])
+        # baud_dropdown.grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
         # --- Monitor Selection ---
         monitor_frame = ttk.LabelFrame(left_frame, text="Display Settings")
@@ -247,7 +247,7 @@ class EEGMarkerGUI:
                       command=self.toggle_randomization_file).grid(
                           row=0, column=0, columnspan=2, sticky="w", padx=5, pady=2)
         
-        # File path and browse button
+        # # File path and browse button
         self.file_path_entry = ttk.Entry(random_frame, textvariable=self.randomization_file_path, width=20, state="disabled")
         self.file_path_entry.grid(row=1, column=0, sticky="ew", padx=5, pady=2)
         
@@ -277,66 +277,66 @@ class EEGMarkerGUI:
         right_row = 0
 
         # --- Baseline Duration ---
-        param_frame = ttk.LabelFrame(right_frame, text="Experiment Parameters")
-        param_frame.grid(row=right_row, column=0, sticky="ew", pady=(0, 10), padx=5)
-        right_row += 1
+        # param_frame = ttk.LabelFrame(right_frame, text="Experiment Parameters")
+        # param_frame.grid(row=right_row, column=0, sticky="ew", pady=(0, 10), padx=5)
+        # right_row += 1
         
-        param_row = 0
+        # param_row = 0
         
-        ttk.Label(param_frame, text="Baseline Duration (s):").grid(row=param_row, column=0, sticky="w", padx=5, pady=2)
-        baseline_frame = ttk.Frame(param_frame)
-        baseline_frame.grid(row=param_row, column=1, sticky="ew", padx=5, pady=2)
-        param_row += 1
+        # ttk.Label(param_frame, text="Baseline Duration (s):").grid(row=param_row, column=0, sticky="w", padx=5, pady=2)
+        # baseline_frame = ttk.Frame(param_frame)
+        # baseline_frame.grid(row=param_row, column=1, sticky="ew", padx=5, pady=2)
+        # param_row += 1
         
-        baseline_scale = ttk.Scale(baseline_frame, from_=self.min_baseline_duration, to=10, orient="horizontal",
-                                  variable=self.baseline_duration, length=150,
-                                  command=lambda val: self.update_label(self.baseline_val_label, val))
-        baseline_scale.pack(side="left", padx=(0, 5))
+        # baseline_scale = ttk.Scale(baseline_frame, from_=self.min_baseline_duration, to=10, orient="horizontal",
+        #                           variable=self.baseline_duration, length=150,
+        #                           command=lambda val: self.update_label(self.baseline_val_label, val))
+        # baseline_scale.pack(side="left", padx=(0, 5))
         
-        self.baseline_val_label = ttk.Label(baseline_frame, text=f"{self.baseline_duration.get()} s", width=5)
-        self.baseline_val_label.pack(side="left")
+        # self.baseline_val_label = ttk.Label(baseline_frame, text=f"{self.baseline_duration.get()} s", width=5)
+        # self.baseline_val_label.pack(side="left")
 
         # --- Activity Selection ---
-        ttk.Label(param_frame, text="Activity Types:").grid(row=param_row, column=0, sticky="w", padx=5, pady=2)
-        act_frame = ttk.Frame(param_frame)
-        act_frame.grid(row=param_row, column=1, sticky="w", padx=5, pady=2)
-        param_row += 1
+        # ttk.Label(param_frame, text="Activity Types:").grid(row=param_row, column=0, sticky="w", padx=5, pady=2)
+        # act_frame = ttk.Frame(param_frame)
+        # act_frame.grid(row=param_row, column=1, sticky="w", padx=5, pady=2)
+        # param_row += 1
         
-        ttk.Checkbutton(act_frame, text="Motor Imagery", variable=self.select_motor_imagery).pack(side="left", padx=(0, 10))
-        ttk.Checkbutton(act_frame, text="Rest", variable=self.select_rest).pack(side="left")
+        # ttk.Checkbutton(act_frame, text="Motor Imagery", variable=self.select_motor_imagery).pack(side="left", padx=(0, 10))
+        # ttk.Checkbutton(act_frame, text="Rest", variable=self.select_rest).pack(side="left")
         
         # Motor Imagery Duration
-        ttk.Label(param_frame, text="Imagery Duration (s):").grid(row=param_row, column=0, sticky="w", padx=5, pady=2)
-        imagery_frame = ttk.Frame(param_frame)
-        imagery_frame.grid(row=param_row, column=1, sticky="ew", padx=5, pady=2)
-        param_row += 1
+        # ttk.Label(param_frame, text="Imagery Duration (s):").grid(row=param_row, column=0, sticky="w", padx=5, pady=2)
+        # imagery_frame = ttk.Frame(param_frame)
+        # imagery_frame.grid(row=param_row, column=1, sticky="ew", padx=5, pady=2)
+        # param_row += 1
         
-        imagery_scale = ttk.Scale(imagery_frame, from_=1, to=10, orient="horizontal",
-                                 variable=self.imagery_duration, length=150,
-                                 command=lambda val: self.update_label(self.imagery_val_label, val))
-        imagery_scale.pack(side="left", padx=(0, 5))
+        # imagery_scale = ttk.Scale(imagery_frame, from_=1, to=10, orient="horizontal",
+        #                          variable=self.imagery_duration, length=150,
+        #                          command=lambda val: self.update_label(self.imagery_val_label, val))
+        # imagery_scale.pack(side="left", padx=(0, 5))
         
-        self.imagery_val_label = ttk.Label(imagery_frame, text=f"{self.imagery_duration.get()} s", width=5)
-        self.imagery_val_label.pack(side="left")
+        # self.imagery_val_label = ttk.Label(imagery_frame, text=f"{self.imagery_duration.get()} s", width=5)
+        # self.imagery_val_label.pack(side="left")
         
-        # Rest Duration
-        ttk.Label(param_frame, text="Rest Duration (s):").grid(row=param_row, column=0, sticky="w", padx=5, pady=2)
-        rest_frame = ttk.Frame(param_frame)
-        rest_frame.grid(row=param_row, column=1, sticky="ew", padx=5, pady=2)
-        param_row += 1
+        # # Rest Duration
+        # ttk.Label(param_frame, text="Rest Duration (s):").grid(row=param_row, column=0, sticky="w", padx=5, pady=2)
+        # rest_frame = ttk.Frame(param_frame)
+        # rest_frame.grid(row=param_row, column=1, sticky="ew", padx=5, pady=2)
+        # param_row += 1
         
-        rest_scale = ttk.Scale(rest_frame, from_=1, to=10, orient="horizontal",
-                              variable=self.rest_duration, length=150,
-                              command=lambda val: self.update_label(self.rest_val_label, val))
-        rest_scale.pack(side="left", padx=(0, 5))
+        # rest_scale = ttk.Scale(rest_frame, from_=1, to=10, orient="horizontal",
+        #                       variable=self.rest_duration, length=150,
+        #                       command=lambda val: self.update_label(self.rest_val_label, val))
+        # rest_scale.pack(side="left", padx=(0, 5))
         
-        self.rest_val_label = ttk.Label(rest_frame, text=f"{self.rest_duration.get()} s", width=5)
-        self.rest_val_label.pack(side="left")
+        # self.rest_val_label = ttk.Label(rest_frame, text=f"{self.rest_duration.get()} s", width=5)
+        # self.rest_val_label.pack(side="left")
         
-        # Total Trials
-        ttk.Label(param_frame, text="Total Trials:").grid(row=param_row, column=0, sticky="w", padx=5, pady=2)
-        ttk.Spinbox(param_frame, from_=1, to=100, textvariable=self.total_trials, width=5).grid(row=param_row, column=1, sticky="w", padx=5, pady=2)
-        param_row += 1
+        # # Total Trials
+        # ttk.Label(param_frame, text="Total Trials:").grid(row=param_row, column=0, sticky="w", padx=5, pady=2)
+        # ttk.Spinbox(param_frame, from_=1, to=100, textvariable=self.total_trials, width=5).grid(row=param_row, column=1, sticky="w", padx=5, pady=2)
+        # param_row += 1
 
         # --- Status and Control ---
         status_frame = ttk.LabelFrame(right_frame, text="Status and Control")

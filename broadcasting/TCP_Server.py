@@ -34,7 +34,7 @@ class TCPServer:
             print(f"[CONNECTED] Client connected from {self.client_address}")
 
             # Start listening for TCP messages in a thread
-            threading.Thread(target=self.listen_to_client_tcp, daemon=True).start()
+            # threading.Thread(target=self.listen_to_client_tcp, daemon=True).start()
 
         except socket.error as e:
             print(f"[ERROR] Server initialization failed: {e}")
