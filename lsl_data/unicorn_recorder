@@ -1,0 +1,882 @@
+import numpy as np
+import mne
+import threading
+import time
+from pylsl import StreamInfo, StreamOutlet, local_clock
+import tkinter as tk
+from tkinter import ttk, messagebox
+from datetime import datetime
+from scipy.io import savemat
+import random
+import UnicornPy
+
+class EEGMarkerGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Unicorn EEG Marker GUI")
+        self.root.geometry("550x900")
+        self.root.minsize(600, 600)
+
+        # Adjustable durations (in seconds)
+        self.blank1_duration = tk.IntVar(value=2)
+        self.baseline1_duration = tk.IntVar(value=5)
+        self.motor_duration = tk.IntVar(value=5)
+        self.blank2_duration = tk.IntVar(value=2)
+        self.baseline2_duration = tk.IntVar(value=5)
+        self.imagery_duration = tk.IntVar(value=5)
+        self.rest_duration = tk.IntVar(value=5)
+
+        self.total_trials = tk.IntVar(value=10)
+        self.file_format = tk.StringVar(value="fif")
+
+        # Activity selection checkboxes
+        self.select_motor_exec = tk.BooleanVar(value=True)
+        self.select_motor_imagery = tk.BooleanVar(value=True)
+        self.select_rest = tk.BooleanVar(value=True)
+
+        # Randomization Option
+        self.randomize_block_order = tk.BooleanVar(value=False)
+
+        self.running = False
+        self.current_trial = 0
+        self.eeg_data = []
+        self.timestamps = []
+        self.markers = []
+        self.start_timestamp = None
+        self.recording_start_time = None
+
+        # Unicorn device variables
+        self.unicorn_device = None
+        self.device_serial = None
+        self.sfreq = UnicornPy.SamplingRate  # Use API constant
+        self.num_channels = UnicornPy.TotalChannelsCount  # Use API constant
+        self.num_eeg_channels = UnicornPy.EEGChannelsCount  # Use API constant
+        self.eeg_channels = []
+        self.eeg_indices = []
+        
+        # Marker outlet for LSL markers
+        self.marker_outlet = None
+
+        # Minimum baseline duration (in seconds) for randomization
+        self.min_baseline_duration = 1.5
+
+        # Sequences for balanced randomization
+        self.trial_activity_sequence = []
+        self.trial_block_order_sequence = []
+
+        self.setup_ui()
+        self.setup_unicorn()
+
+    def setup_ui(self):
+        # Create a canvas and a vertical scrollbar so all content is accessible
+        canvas = tk.Canvas(self.root)
+        scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=canvas.yview)
+        # Create a frame inside the canvas which will hold all other widgets
+        scrollable_frame = tk.Frame(canvas, padx=20, pady=20)
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        self.dynamic_labels = []
+        self.dynamic_buttons = []
+
+        row_idx = 0
+
+        # Device selection
+        lbl_device = tk.Label(scrollable_frame, text="Unicorn Device")
+        lbl_device.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
+        self.dynamic_labels.append(lbl_device)
+        
+        self.device_var = tk.StringVar()
+        self.device_dropdown = ttk.Combobox(scrollable_frame, textvariable=self.device_var, state="readonly")
+        self.device_dropdown.grid(row=row_idx, column=0, sticky="ew", pady=(0, 5)); row_idx += 1
+        
+        self.refresh_button = tk.Button(scrollable_frame, text="Refresh Devices", command=self.refresh_devices)
+        self.refresh_button.grid(row=row_idx, column=0, sticky="ew", pady=(0, 10)); row_idx += 1
+        self.dynamic_buttons.append(self.refresh_button)
+
+        # Pre-trial Blank Duration
+        lbl_blank1 = tk.Label(scrollable_frame, text="Pre-Block Blank Duration (s)")
+        lbl_blank1.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
+        self.dynamic_labels.append(lbl_blank1)
+        blank1_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
+                                 variable=self.blank1_duration,
+                                 command=lambda val: self.update_label(self.blank1_val_label, val))
+        blank1_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
+        self.blank1_val_label = tk.Label(scrollable_frame, text=f"{self.blank1_duration.get()} s")
+        self.blank1_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
+
+        # Baseline 1 Duration
+        lbl_baseline1 = tk.Label(scrollable_frame, text="Pre-Activity Baseline Duration (s)")
+        lbl_baseline1.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
+        self.dynamic_labels.append(lbl_baseline1)
+        baseline1_scale = ttk.Scale(scrollable_frame, from_=self.min_baseline_duration, to=10, orient="horizontal",
+                                    variable=self.baseline1_duration,
+                                    command=lambda val: self.update_label(self.baseline1_val_label, val))
+        baseline1_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
+        self.baseline1_val_label = tk.Label(scrollable_frame, text=f"{self.baseline1_duration.get()} s")
+        self.baseline1_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
+
+        # Motor Execution Duration & Checkbox
+        lbl_motor = tk.Label(scrollable_frame, text="Motor Execution Duration (s)")
+        lbl_motor.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
+        self.dynamic_labels.append(lbl_motor)
+        motor_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
+                                variable=self.motor_duration,
+                                command=lambda val: self.update_label(self.motor_val_label, val))
+        motor_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
+        self.motor_val_label = tk.Label(scrollable_frame, text=f"{self.motor_duration.get()} s")
+        self.motor_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
+        cb_motor = tk.Checkbutton(scrollable_frame, text="Enable Motor Execution Block", variable=self.select_motor_exec)
+        cb_motor.grid(row=row_idx, column=0, sticky="w"); row_idx += 1
+        self.dynamic_buttons.append(cb_motor)
+
+        # Inter-Block Blank Duration
+        lbl_blank2 = tk.Label(scrollable_frame, text="Inter-Block Blank Duration (s)")
+        lbl_blank2.grid(row=row_idx, column=0, sticky="w", pady=(10, 2)); row_idx += 1
+        self.dynamic_labels.append(lbl_blank2)
+        blank2_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
+                                 variable=self.blank2_duration,
+                                 command=lambda val: self.update_label(self.blank2_val_label, val))
+        blank2_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
+        self.blank2_val_label = tk.Label(scrollable_frame, text=f"{self.blank2_duration.get()} s")
+        self.blank2_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
+
+        # Baseline 2 Duration
+        lbl_baseline2 = tk.Label(scrollable_frame, text="Inter-Block Baseline Duration (s)")
+        lbl_baseline2.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
+        self.dynamic_labels.append(lbl_baseline2)
+        baseline2_scale = ttk.Scale(scrollable_frame, from_=self.min_baseline_duration, to=10, orient="horizontal",
+                                    variable=self.baseline2_duration,
+                                    command=lambda val: self.update_label(self.baseline2_val_label, val))
+        baseline2_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
+        self.baseline2_val_label = tk.Label(scrollable_frame, text=f"{self.baseline2_duration.get()} s")
+        self.baseline2_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
+
+        # Activity Phase Selection & Durations
+        lbl_activity = tk.Label(scrollable_frame, text="Activity Block Options (choose one or both):")
+        lbl_activity.grid(row=row_idx, column=0, sticky="w", pady=(10, 2)); row_idx += 1
+        self.dynamic_labels.append(lbl_activity)
+        act_frame = tk.Frame(scrollable_frame)
+        act_frame.grid(row=row_idx, column=0, sticky="w", pady=(0, 10)); row_idx += 1
+        cb_imagery = tk.Checkbutton(act_frame, text="Motor Imagery", variable=self.select_motor_imagery)
+        cb_imagery.pack(side="left", padx=(0, 10))
+        self.dynamic_buttons.append(cb_imagery)
+        cb_rest = tk.Checkbutton(act_frame, text="Rest", variable=self.select_rest)
+        cb_rest.pack(side="left")
+        self.dynamic_buttons.append(cb_rest)
+        
+        # Motor Imagery Duration slider
+        lbl_imagery = tk.Label(scrollable_frame, text="Motor Imagery Duration (s)")
+        lbl_imagery.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
+        self.dynamic_labels.append(lbl_imagery)
+        imagery_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
+                                  variable=self.imagery_duration,
+                                  command=lambda val: self.update_label(self.imagery_val_label, val))
+        imagery_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
+        self.imagery_val_label = tk.Label(scrollable_frame, text=f"{self.imagery_duration.get()} s")
+        self.imagery_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
+        
+        # Rest Duration slider
+        lbl_rest = tk.Label(scrollable_frame, text="Rest Duration (s)")
+        lbl_rest.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
+        self.dynamic_labels.append(lbl_rest)
+        rest_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
+                               variable=self.rest_duration,
+                               command=lambda val: self.update_label(self.rest_val_label, val))
+        rest_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
+        self.rest_val_label = tk.Label(scrollable_frame, text=f"{self.rest_duration.get()} s")
+        self.rest_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
+
+        # Randomize Block Order Checkbox
+        cb_random_block = tk.Checkbutton(scrollable_frame, text="Randomize Block Order (Execution vs. Activity)",
+                                         variable=self.randomize_block_order)
+        cb_random_block.grid(row=row_idx, column=0, sticky="w", pady=(5, 10)); row_idx += 1
+        self.dynamic_buttons.append(cb_random_block)
+
+        # Total Trials
+        lbl_trials = tk.Label(scrollable_frame, text="Total Trials")
+        lbl_trials.grid(row=row_idx, column=0, sticky="w", pady=(10, 2)); row_idx += 1
+        self.dynamic_labels.append(lbl_trials)
+        t_spinbox = ttk.Spinbox(scrollable_frame, from_=1, to=100, textvariable=self.total_trials, width=5)
+        t_spinbox.grid(row=row_idx, column=0, sticky="w", pady=(0, 10)); row_idx += 1
+
+        # File Format
+        lbl_format = tk.Label(scrollable_frame, text="Save Format")
+        lbl_format.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
+        self.dynamic_labels.append(lbl_format)
+        format_menu = ttk.OptionMenu(scrollable_frame, self.file_format, "fif", "fif", "mat")
+        format_menu.grid(row=row_idx, column=0, sticky="ew", pady=(0, 10)); row_idx += 1
+
+        # Trial Label
+        self.trial_label = tk.Label(scrollable_frame, text="Trial: 0 / 0")
+        self.trial_label.grid(row=row_idx, column=0, pady=(10, 5)); row_idx += 1
+
+        # Logs
+        lbl_logs = tk.Label(scrollable_frame, text="Logs")
+        lbl_logs.grid(row=row_idx, column=0, sticky="w"); row_idx += 1
+        self.dynamic_labels.append(lbl_logs)
+        self.log_box = tk.Text(scrollable_frame, height=8, state="disabled", bg="#f5f5f5")
+        self.log_box.grid(row=row_idx, column=0, sticky="nsew", pady=(0, 10)); row_idx += 1
+        scrollable_frame.grid_rowconfigure(row_idx -1, weight=2)
+
+        # Start and Stop Buttons
+        self.start_button = tk.Button(scrollable_frame, text="Start Session", command=self.start_session)
+        self.start_button.grid(row=row_idx, column=0, sticky="ew", pady=(0, 5)); row_idx += 1
+        self.dynamic_buttons.append(self.start_button)
+        self.stop_button = tk.Button(scrollable_frame, text="Stop and Save", command=self.stop_session, state="disabled")
+        self.stop_button.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
+        self.dynamic_buttons.append(self.stop_button)
+
+    def update_label(self, label_widget, val):
+        if label_widget in [self.baseline1_val_label, self.baseline2_val_label]:
+            fval = max(float(val), self.min_baseline_duration)
+            label_widget.config(text=f"{fval:.1f} s")
+        else:
+            label_widget.config(text=f"{int(float(val))} s")
+
+    def update_cue(self, symbol, title):
+        if hasattr(self, 'cue_win') and self.cue_win.winfo_exists():
+            self.cue_win.title(title)
+            self.cue_label.config(text=symbol)
+            self.cue_win.update()
+
+    def setup_unicorn(self):
+        """Initialize Unicorn device connection and marker stream."""
+        try:
+            # Log API version
+            api_version = UnicornPy.GetApiVersion()
+            self.log(f"Unicorn API Version: {api_version}")
+            
+            # Create LSL marker stream
+            marker_info = StreamInfo('ExperimentMarkers', 'Markers', 1, 0, 'string', 'myuidw43536')
+            self.marker_outlet = StreamOutlet(marker_info)
+            self.log("Marker stream created.")
+            
+            # Get available devices
+            self.refresh_devices()
+            
+            # Set up channel information based on configuration
+            config = self.unicorn_device.GetConfiguration()
+            
+            # Get EEG channel names from the configuration
+            self.eeg_channels = []
+            self.eeg_indices = []
+            
+            for i in range(UnicornPy.EEGChannelsCount):
+                channel_idx = UnicornPy.EEGConfigIndex + i
+                if channel_idx < len(config.Channels):
+                    channel = config.Channels[channel_idx]
+                    if channel.Enabled:
+                        self.eeg_channels.append(channel.Name)
+                        self.eeg_indices.append(i)
+            
+            self.log(f"Active EEG channels: {', '.join(self.eeg_channels)}")
+            
+        except Exception as e:
+            self.log(f"Error during Unicorn setup: {e}")
+            messagebox.showerror("Unicorn Error", f"Could not initialize Unicorn API:\n{e}")
+
+    def refresh_devices(self):
+        """Refresh the list of available Unicorn devices."""
+        try:
+            self.log("Scanning for paired Unicorn devices...")
+            available_devices = UnicornPy.GetAvailableDevices(True)  # True for paired devices only
+            
+            if available_devices:
+                # Convert device names to strings properly
+                device_list = []
+                for dev in available_devices:
+                    if isinstance(dev, bytes):
+                        device_list.append(dev.decode('utf-8'))
+                    else:
+                        device_list.append(str(dev))
+                
+                self.device_dropdown['values'] = device_list
+                if device_list:
+                    self.device_dropdown.current(0)
+                    self.device_serial = device_list[0]
+                self.log(f"Found {len(device_list)} Unicorn device(s): {', '.join(device_list)}")
+            else:
+                self.device_dropdown['values'] = []
+                self.log("No Unicorn devices found. Make sure the device is:")
+                self.log("  - Turned on")
+                self.log("  - Paired via Bluetooth")
+                self.log("  - Not connected to another application")
+                
+        except UnicornPy.DeviceException as e:
+            self.log(f"Device error while scanning: {e}")
+            self.device_dropdown['values'] = []
+            messagebox.showwarning("Scan Error", f"Could not scan for devices: {e}")
+        except Exception as e:
+            self.log(f"Error refreshing devices: {e}")
+            self.device_dropdown['values'] = []
+
+    def connect_unicorn(self):
+        """Connect to the selected Unicorn device."""
+        try:
+            if not self.device_var.get():
+                raise Exception("No device selected")
+                
+            self.device_serial = self.device_var.get()
+            self.log(f"Connecting to Unicorn device: {self.device_serial}")
+            
+            # Create Unicorn instance
+            self.unicorn_device = UnicornPy.Unicorn(self.device_serial)
+            self.log("Connected to Unicorn device successfully")
+            
+            # Get device information
+            try:
+                device_info = self.unicorn_device.GetDeviceInformation()
+                self.log(f"Device Serial: {device_info.Serial}")
+                self.log(f"Firmware Version: {device_info.FwVersion}")
+                self.log(f"Device Version: {device_info.DeviceVersion}")
+                self.log(f"Number of EEG Channels: {device_info.NumberOfEegChannels}")
+                
+                # Check if device version is supported
+                if hasattr(UnicornPy, 'SupportedDeviceVersion'):
+                    if device_info.DeviceVersion != UnicornPy.SupportedDeviceVersion:
+                        self.log(f"Warning: Device version {device_info.DeviceVersion} may not be fully supported.")
+                        self.log(f"Supported version: {UnicornPy.SupportedDeviceVersion}")
+            except Exception as e:
+                self.log(f"Warning: Could not retrieve device information: {e}")
+            
+            # Get and log configuration
+            config = self.unicorn_device.GetConfiguration()
+            self.log(f"Sampling Rate: {UnicornPy.SamplingRate} Hz")
+            self.log(f"Number of channels: {len(config.Channels)}")
+            
+            # Configure channels - enable only EEG channels
+            for i in range(len(config.Channels)):
+                if i >= UnicornPy.EEGConfigIndex and i < UnicornPy.EEGConfigIndex + UnicornPy.EEGChannelsCount:
+                    config.Channels[i].Enabled = True
+                else:
+                    config.Channels[i].Enabled = False
+            
+            # Apply configuration
+            self.unicorn_device.SetConfiguration(config)
+            
+            # Update our channel information after configuration
+            self.eeg_channels = []
+            enabled_count = 0
+            for i in range(UnicornPy.EEGChannelsCount):
+                channel_idx = UnicornPy.EEGConfigIndex + i
+                channel = config.Channels[channel_idx]
+                if channel.Enabled:
+                    self.eeg_channels.append(channel.Name)
+                    enabled_count += 1
+            
+            self.num_acquired_channels = self.unicorn_device.GetNumberOfAcquiredChannels()
+            self.log(f"Number of acquired channels: {self.num_acquired_channels}")
+            self.log(f"Enabled EEG channels: {', '.join(self.eeg_channels)}")
+            
+            return True
+            
+        except UnicornPy.DeviceException as e:
+            self.log(f"Unicorn Device Error: {e}")
+            if hasattr(e, 'code'):
+                if e.code == UnicornPy.ErrorOpenDeviceFailed:
+                    self.log("Could not open device. Is it already connected elsewhere?")
+                elif e.code == UnicornPy.ErrorBluetoothSocketFailed:
+                    self.log("Bluetooth connection failed. Check if device is on and in range.")
+                elif e.code == UnicornPy.ErrorInvalidParameter:
+                    self.log("Invalid parameter. Check device serial number.")
+            if self.unicorn_device:
+                del self.unicorn_device
+                self.unicorn_device = None
+            return False
+        except Exception as e:
+            self.log(f"Error connecting to Unicorn device: {e}")
+            if self.unicorn_device:
+                del self.unicorn_device
+                self.unicorn_device = None
+            return False
+
+    def disconnect_unicorn(self):
+        """Disconnect from the Unicorn device."""
+        if self.unicorn_device:
+            try:
+                if hasattr(self, '_acquisition_running') and self._acquisition_running:
+                    self.unicorn_device.StopAcquisition()
+                del self.unicorn_device
+                self.unicorn_device = None
+                self.log("Disconnected from Unicorn device")
+            except Exception as e:
+                self.log(f"Error disconnecting from Unicorn: {e}")
+
+    def _send_marker(self, marker_label):
+        """Helper function to send marker and log it."""
+        try:
+            marker_timestamp = local_clock()
+            self.marker_outlet.push_sample([marker_label], timestamp=marker_timestamp)
+            
+            # Optionally send digital output trigger for hardware synchronization
+            # This sends a brief pulse on digital output 1 for each marker
+            if self.unicorn_device and hasattr(self, '_acquisition_running') and self._acquisition_running:
+                try:
+                    # Set digital output 1 high (bit 0)
+                    self.unicorn_device.SetDigitalOutputs(0x01)
+                    # Brief delay
+                    time.sleep(0.01)
+                    # Set back to low
+                    self.unicorn_device.SetDigitalOutputs(0x00)
+                except:
+                    pass  # Don't fail if digital outputs aren't available
+            
+            if self.recording_start_time is not None:
+                self.markers.append((marker_label, marker_timestamp))
+                relative_time = marker_timestamp - self.start_timestamp
+                self.log(f"Marker '{marker_label}' sent at LSL: {marker_timestamp:.4f} (Relative: {relative_time:.4f})")
+            else:
+                self.markers.append((marker_label, marker_timestamp))
+                self.log(f"Marker '{marker_label}' sent at LSL: {marker_timestamp:.4f}")
+        except Exception as e:
+            self.log(f"Error sending marker '{marker_label}': {e}")
+
+    def start_session(self):
+        # Input Validation
+        if not self.device_var.get():
+            self.log("Please select a Unicorn device.")
+            messagebox.showerror("Error", "Please select a Unicorn device.")
+            return
+
+        # Connect to device if not already connected
+        if not self.unicorn_device:
+            if not self.connect_unicorn():
+                messagebox.showerror("Error", "Failed to connect to Unicorn device.")
+                return
+
+        if not self.marker_outlet:
+            self.log("Cannot start: Marker stream not available.")
+            messagebox.showerror("Error", "Marker stream could not be created.")
+            return
+
+        n_trials = self.total_trials.get()
+        if n_trials <= 0:
+            messagebox.showerror("Error", "Total trials must be greater than 0.")
+            return
+
+        motor_selected = self.select_motor_exec.get()
+        imagery_selected = self.select_motor_imagery.get()
+        rest_selected = self.select_rest.get()
+        activity_selected = imagery_selected or rest_selected
+
+        if not motor_selected and not activity_selected:
+            messagebox.showerror("Error", "At least one block type (Motor Execution or an Activity) must be selected.")
+            return
+
+        if self.randomize_block_order.get() and not (motor_selected and activity_selected):
+            messagebox.showwarning("Warning", "Randomize Block Order selected, but only one block type is enabled.")
+            self.randomize_block_order.set(False)
+
+        # Generate Trial Sequences
+        self.trial_activity_sequence = []
+        self.trial_block_order_sequence = []
+
+        if activity_selected:
+            if imagery_selected and rest_selected:
+                num_imagery = n_trials // 2
+                num_rest = n_trials - num_imagery
+                self.trial_activity_sequence = ['imagery'] * num_imagery + ['rest'] * num_rest
+                random.shuffle(self.trial_activity_sequence)
+                self.log(f"Generated balanced Imagery/Rest sequence for {n_trials} trials.")
+            elif imagery_selected:
+                self.trial_activity_sequence = ['imagery'] * n_trials
+            else:
+                self.trial_activity_sequence = ['rest'] * n_trials
+
+        if motor_selected and activity_selected and self.randomize_block_order.get():
+            num_motor_first = n_trials // 2
+            num_activity_first = n_trials - num_motor_first
+            self.trial_block_order_sequence = ['motor_first'] * num_motor_first + ['activity_first'] * num_activity_first
+            random.shuffle(self.trial_block_order_sequence)
+            self.log(f"Generated randomized Block Order sequence for {n_trials} trials.")
+        elif motor_selected:
+            self.trial_block_order_sequence = ['motor_first'] * n_trials
+        else:
+            self.trial_block_order_sequence = ['activity_first'] * n_trials
+
+        # Start Recording
+        self.running = True
+        self.start_button.config(state="disabled")
+        self.stop_button.config(state="normal")
+        self.eeg_data = []
+        self.timestamps = []
+        self.markers = []
+        self.current_trial = 0
+        self.trial_label.config(text=f"Trial: 0 / {n_trials}")
+
+        # Setup Cue Window
+        self.cue_win = tk.Toplevel(self.root)
+        self.cue_win.attributes("-fullscreen", True)
+        self.cue_win.configure(bg="black")
+        self.cue_win.focus_force()
+        self.cue_win.bind("<Escape>", lambda e: self.stop_session())
+
+        self.cue_label = tk.Label(self.cue_win, text="", fg="white", bg="black", font=("Arial", 100, "bold"))
+        self.cue_label.pack(expand=True)
+        self.cue_win.update()
+
+        self.root.bind("<Escape>", lambda e: self.stop_session())
+
+        # Start Unicorn data acquisition
+        try:
+            self.start_timestamp = local_clock()
+            self.recording_start_time = time.time()
+            self.log(f"Recording started. LSL Start Time: {self.start_timestamp:.4f}")
+            
+            # Start acquisition on device
+            self.unicorn_device.StartAcquisition(False)  # False for non-test signal
+            self._acquisition_running = True
+            
+            self._send_marker("session_start")
+
+            # Start the recording thread
+            self.recording_thread = threading.Thread(target=self.record_loop, daemon=True)
+            self.recording_thread.start()
+
+            # Start the first trial after a short delay
+            self.root.after(500, self.start_trial)
+
+        except Exception as e:
+            self.log(f"Error starting recording: {e}")
+            self.stop_session()
+            messagebox.showerror("Error", f"Failed to start recording:\n{e}")
+
+    def stop_session(self):
+        if not self.running:
+            return
+        self.running = False
+        self.log("Stopping session...")
+        self._send_marker("session_end")
+
+        # Stop Unicorn acquisition
+        if hasattr(self, '_acquisition_running') and self._acquisition_running:
+            try:
+                self.unicorn_device.StopAcquisition()
+                self._acquisition_running = False
+            except Exception as e:
+                self.log(f"Error stopping acquisition: {e}")
+
+        # Wait briefly for the recording thread to finish
+        if hasattr(self, 'recording_thread') and self.recording_thread.is_alive():
+            time.sleep(0.1)
+
+        if hasattr(self, 'cue_win') and self.cue_win.winfo_exists():
+            self.cue_win.destroy()
+
+        # Cancel any pending after calls
+        for after_id in self.root.tk.call('after', 'info'):
+            self.root.after_cancel(after_id)
+
+        self.start_button.config(state="normal")
+        self.stop_button.config(state="disabled")
+
+        self.root.unbind("<Escape>")
+
+        if not self.eeg_data:
+            self.log("No EEG data recorded.")
+        else:
+            self.log("Recording stopped. Saving data...")
+            self.save_data()
+
+        # Disconnect from device
+        self.disconnect_unicorn()
+
+    def start_trial(self):
+        """Initiates a single trial."""
+        if not self.running or self.current_trial >= self.total_trials.get():
+            if self.running:
+                self.stop_session()
+            return
+
+        self.current_trial += 1
+        self.trial_label.config(text=f"Trial: {self.current_trial} / {self.total_trials.get()}")
+        self.log(f"\n--- Starting Trial {self.current_trial} ---")
+
+        current_block_order = self.trial_block_order_sequence[self.current_trial - 1]
+        self.log(f"Trial {self.current_trial} Order: {current_block_order}")
+
+        self.start_blank_phase(is_first_block=True, next_phase='baseline1')
+
+    # Phase Control Functions (same as original)
+    def start_blank_phase(self, is_first_block, next_phase):
+        duration = self.blank1_duration.get() if is_first_block else self.blank2_duration.get()
+        marker = 'blank_pre' if is_first_block else 'blank_inter'
+        self.update_cue("", "Blank")
+        self._send_marker(marker)
+        self.log(f"Phase: {marker} ({duration} s)")
+        self.root.after(duration * 1000, getattr(self, f'start_{next_phase}_phase'))
+
+    def start_baseline1_phase(self):
+        self.update_cue("+", "Baseline")
+        self._send_marker('baseline_1')
+
+        max_duration = self.baseline1_duration.get()
+        duration_randomized = random.uniform(self.min_baseline_duration, max_duration)
+        self.log(f"Phase: Baseline 1 ({duration_randomized:.2f} s)")
+
+        first_block_type = self.trial_block_order_sequence[self.current_trial - 1]
+        if first_block_type == 'motor_first':
+            next_func = self.start_motor_execution_phase
+        else:
+            next_func = self.start_activity_phase
+
+        self.root.after(int(duration_randomized * 1000), next_func, True)
+
+    def start_baseline2_phase(self):
+        self.update_cue("+", "Baseline")
+        self._send_marker('baseline_2')
+
+        max_duration = self.baseline2_duration.get()
+        duration_randomized = random.uniform(self.min_baseline_duration, max_duration)
+        self.log(f"Phase: Baseline 2 ({duration_randomized:.2f} s)")
+
+        first_block_type = self.trial_block_order_sequence[self.current_trial - 1]
+        if first_block_type == 'motor_first':
+            next_func = self.start_activity_phase
+        else:
+            next_func = self.start_motor_execution_phase
+
+        self.root.after(int(duration_randomized * 1000), next_func, False)
+
+    def start_motor_execution_phase(self, is_first_block):
+        if not self.select_motor_exec.get():
+            self.log("Motor Execution skipped (not selected)")
+            if is_first_block:
+                self.start_blank_phase(is_first_block=False, next_phase='baseline2')
+            else:
+                self.start_trial()
+            return
+
+        self.update_cue("M", "Motor Execution")
+        self._send_marker('execution_start')
+        duration = self.motor_duration.get()
+        self.log(f"Phase: Motor Execution ({duration} s)")
+
+        self.root.after(duration * 1000, self.end_motor_execution_phase, is_first_block)
+
+    def end_motor_execution_phase(self, is_first_block):
+        self._send_marker('execution_end')
+        if is_first_block:
+            self.start_blank_phase(is_first_block=False, next_phase='baseline2')
+        else:
+            self.start_trial()
+
+    def start_activity_phase(self, is_first_block):
+        if not (self.select_motor_imagery.get() or self.select_rest.get()):
+            self.log("Activity Phase skipped (none selected)")
+            if is_first_block:
+                self.start_blank_phase(is_first_block=False, next_phase='baseline2')
+            else:
+                self.start_trial()
+            return
+
+        activity = self.trial_activity_sequence[self.current_trial - 1]
+        marker_start = f"{activity}_start"
+
+        if activity == 'imagery':
+            self.update_cue("I", "Motor Imagery")
+            duration = self.imagery_duration.get()
+            self.log(f"Phase: Motor Imagery ({duration} s)")
+        else:
+            self.update_cue("", "Rest")
+            duration = self.rest_duration.get()
+            self.log(f"Phase: Rest ({duration} s)")
+
+        self._send_marker(marker_start)
+        self.root.after(duration * 1000, self.end_activity_phase, is_first_block, activity)
+
+    def end_activity_phase(self, is_first_block, activity_type):
+        marker_end = f"{activity_type}_end"
+        self._send_marker(marker_end)
+        if is_first_block:
+            self.start_blank_phase(is_first_block=False, next_phase='baseline2')
+        else:
+            self.start_trial()
+
+    # Data Recording
+    def record_loop(self):
+        """Recording loop for Unicorn device."""
+        self.log("EEG recording thread started.")
+        
+        # Calculate buffer size for approximately 50ms chunks
+        buffer_size = int(self.sfreq * 0.05)  # 50ms worth of samples
+        
+        # Allocate bytearray for receiving data as specified in API
+        # Each scan has num_acquired_channels floats, each float is 4 bytes
+        bytes_per_scan = self.num_acquired_channels * 4
+        total_bytes = buffer_size * bytes_per_scan
+        receive_buffer = bytearray(total_bytes)
+        
+        # Also create a numpy view for easier data manipulation
+        float_buffer = np.frombuffer(receive_buffer, dtype=np.float32)
+        
+        while self.running:
+            try:
+                # Get data from Unicorn device
+                self.unicorn_device.GetData(buffer_size, receive_buffer, len(float_buffer))
+                
+                # Create timestamps for this chunk
+                current_time = local_clock()
+                chunk_timestamps = np.linspace(
+                    current_time - (buffer_size / self.sfreq),
+                    current_time,
+                    buffer_size
+                )
+                
+                # Reshape the flat buffer into scans x channels
+                data_array = float_buffer.reshape(buffer_size, self.num_acquired_channels)
+                
+                # Extract only EEG channels (first 8 channels when all are acquired)
+                eeg_data = data_array[:, :self.num_eeg_channels]
+                
+                # Convert to list format and append
+                self.eeg_data.extend(eeg_data.tolist())
+                self.timestamps.extend(chunk_timestamps)
+                
+            except UnicornPy.DeviceException as e:
+                if self.running:
+                    self.log(f"Device error in recording loop: {e}")
+                    if hasattr(e, 'code'):
+                        if e.code == UnicornPy.ErrorConnectionProblem:
+                            self.log("Connection lost. Stopping recording...")
+                            self.root.after(0, self.stop_session)
+                            break
+                        elif e.code == UnicornPy.ErrorBufferOverflow:
+                            self.log("Buffer overflow - data loss may have occurred")
+                        elif e.code == UnicornPy.ErrorBufferUnderflow:
+                            self.log("Buffer underflow - waiting for data")
+                    time.sleep(0.5)
+            except Exception as e:
+                if self.running:
+                    self.log(f"Error in recording loop: {e}")
+                    time.sleep(0.5)
+                    
+        self.log("EEG recording thread finished.")
+
+    def log(self, message):
+        def _log_update():
+            if self.log_box.winfo_exists():
+                self.log_box.config(state="normal")
+                timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                self.log_box.insert("end", f"[{timestamp}] {message}\n")
+                self.log_box.config(state="disabled")
+                self.log_box.see("end")
+        self.root.after(0, _log_update)
+
+    def save_data(self):
+        if not self.eeg_data:
+            self.log("No data to save.")
+            return
+
+        try:
+            eeg_array = np.array(self.eeg_data).T  # Transpose for MNE (channels x samples)
+            times_lsl = np.array(self.timestamps)
+
+            if eeg_array.shape[1] != len(times_lsl):
+                self.log(f"Warning: Mismatch between EEG samples ({eeg_array.shape[1]}) and timestamps ({len(times_lsl)}).")
+                min_len = min(eeg_array.shape[1], len(times_lsl))
+                eeg_array = eeg_array[:, :min_len]
+                times_lsl = times_lsl[:min_len]
+
+            # Create MNE Info object
+            ch_names = self.eeg_channels
+            ch_types = ['eeg'] * len(ch_names)
+            info = mne.create_info(ch_names=ch_names, sfreq=self.sfreq, ch_types=ch_types)
+            info['description'] = f"Unicorn recording started at {datetime.fromtimestamp(self.recording_start_time).strftime('%Y-%m-%d %H:%M:%S')}"
+
+            # Process Markers for MNE Annotations
+            marker_labels = [m[0] for m in self.markers]
+            marker_times_lsl = np.array([m[1] for m in self.markers])
+
+            if times_lsl.size > 0:
+                first_sample_time_lsl = times_lsl[0]
+                sort_idx = np.argsort(marker_times_lsl)
+                marker_times_lsl = marker_times_lsl[sort_idx]
+                marker_labels = [marker_labels[i] for i in sort_idx]
+
+                marker_onsets_relative = marker_times_lsl - first_sample_time_lsl
+                valid_marker_indices = marker_onsets_relative >= 0
+                marker_onsets_final = marker_onsets_relative[valid_marker_indices]
+                marker_labels_final = [marker_labels[i] for i, valid in enumerate(valid_marker_indices) if valid]
+
+                if len(marker_labels_final) != len(marker_labels):
+                    self.log(f"Warning: {len(marker_labels) - len(marker_labels_final)} markers occurred before the first EEG sample.")
+
+                annotations = mne.Annotations(onset=marker_onsets_final,
+                                            duration=np.zeros(len(marker_labels_final)),
+                                            description=marker_labels_final,
+                                            orig_time=None)
+                self.log(f"Created {len(marker_labels_final)} annotations for MNE.")
+            else:
+                self.log("Warning: No EEG timestamps recorded.")
+                annotations = None
+
+            # Create MNE Raw object
+            raw = mne.io.RawArray(eeg_array, info)
+
+            if annotations:
+                try:
+                    raw.set_annotations(annotations)
+                except Exception as e:
+                    self.log(f"Error setting annotations: {e}")
+
+            # Save File
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename_base = f"unicorn_recording_{timestamp_str}"
+            save_format = self.file_format.get()
+            filename = f"{filename_base}.{save_format}"
+
+            if save_format == "fif":
+                raw.save(filename, overwrite=True)
+                self.log(f"Data saved to {filename}")
+                
+                # Verification
+                try:
+                    raw_check = mne.io.read_raw_fif(filename, preload=False)
+                    self.log(f"Successfully verified {filename}: {raw_check.info['nchan']} channels, {raw_check.n_times} samples.")
+                    if raw_check.annotations:
+                        self.log(f"Verified {len(raw_check.annotations)} annotations in saved file.")
+                except Exception as e:
+                    self.log(f"Error verifying saved FIF file: {e}")
+
+            elif save_format == "mat":
+                mat_dict = {
+                    'eeg_data': eeg_array,
+                    'eeg_timestamps_lsl': times_lsl,
+                    'channels': ch_names,
+                    'sfreq': self.sfreq,
+                    'markers': marker_labels,
+                    'marker_timestamps_lsl': marker_times_lsl,
+                    'info': str(info),
+                    'lsl_start_time': self.start_timestamp,
+                    'recording_start_time_unix': self.recording_start_time,
+                    'device_serial': self.device_serial
+                }
+                if 'marker_onsets_relative' in locals():
+                    mat_dict['marker_onsets_relative_to_first_sample'] = marker_onsets_relative
+
+                savemat(filename, mat_dict)
+                self.log(f"Data saved to {filename}")
+
+            else:
+                self.log(f"Error: Unknown file format '{save_format}'")
+
+        except Exception as e:
+            self.log(f"Error during data saving: {e}")
+            import traceback
+            self.log(traceback.format_exc())
+            messagebox.showerror("Save Error", f"An error occurred while saving data:\n{e}")
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = EEGMarkerGUI(root)
+    root.mainloop()

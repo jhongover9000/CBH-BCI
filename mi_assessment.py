@@ -109,6 +109,12 @@ class EEGMarkerGUI:
         self.rest_question = "Were you able to maintain a resting state?"
         self.instructions = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Baseline\n\u2022 : Motor Imagery\n Blank Screen : Resting State\n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
         self.show_instructions = True
+
+        # Sound
+        self.beep_sound = None
+        self.use_baseline_beep = tk.BooleanVar(value=True)
+        self.beep_frequency = 400  # Hz
+        self.beep_duration = 0.1   # seconds
         
         self.setup_ui()
         self.get_available_com_ports()
@@ -943,6 +949,39 @@ class EEGMarkerGUI:
                 bold=True
             )
 
+            # Create beep sound stimulus
+            try:
+                from psychopy import sound
+                # Update beep parameters from UI
+                try:
+                    self.beep_frequency = float(self.freq_var.get())
+                    self.beep_duration = float(self.duration_var.get())
+                except ValueError:
+                    self.log("Invalid beep parameters, using defaults")
+                    self.beep_frequency = 800
+                    self.beep_duration = 0.1
+                
+                self.beep_sound = sound.Sound(
+                    value=self.beep_frequency,  # Frequency in Hz
+                    secs=self.beep_duration,    # Duration in seconds
+                    stereo=True,
+                    volume=0.5,                 # Moderate volume
+                    loops=0,                    # Play once
+                    sampleRate=44100,
+                    blockSize=128,
+                    preBuffer=-1,
+                    hamming=True,
+                    startTime=0,
+                    stopTime=-1,
+                    name='baseline_beep',
+                    autoLog=True
+                )
+                self.log(f"Beep sound created: {self.beep_frequency}Hz for {self.beep_duration}s")
+                
+            except Exception as e:
+                self.log(f"Error creating beep sound: {e}")
+                self.beep_sound = None
+
             # Create video stimulus if video file is specified
             if self.use_instruction_video.get() and self.video_file_path.get():
                 try:
@@ -976,6 +1015,7 @@ class EEGMarkerGUI:
             self.log(traceback.format_exc())
             messagebox.showerror("Error", f"Failed to create PsychoPy window:\n{e}")
             return False
+    
 
     def schedule_psychopy_update(self):
         """Schedule periodic updates for PsychoPy in Tkinter's event loop"""
@@ -1473,7 +1513,15 @@ class EEGMarkerGUI:
         self.start_baseline_phase()
 
     def start_baseline_phase(self):
-        """Handles the baseline period."""
+        """Display fixation cross and handle baseline beep"""
+        # Play baseline beep at fixation start
+        if self.use_baseline_beep.get() and self.beep_sound:
+            try:
+                self.beep_sound.play()
+                self.log(f"Trial {self.current_trial}: Baseline beep at fixation")
+            except Exception as e:
+                self.log(f"Error playing baseline beep: {e}")
+                
         self.update_cue("+", "Baseline")
         self.send_marker(self.to_hex(self.baseline))
 
