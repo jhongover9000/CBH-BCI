@@ -30,7 +30,7 @@ class EEGMarkerGUI:
         self.root.minsize(1000, 650)
 
         # Directories
-        self.video_dir = "./mi_assessment/resources/finger_tap_ex.mp4"
+        self.video_dir = "./mi_assessment/resources/finger_tap_ex_1080.mp4"
         self.order_dir = "./mi_assessment/resources/counterbalanced_order.txt"
         self.save_directory = "./mi_assessment/saves/"
         self.debug_mode = tk.BooleanVar(value=False)
@@ -107,7 +107,7 @@ class EEGMarkerGUI:
         # Questions and Instructions
         self.imagery_question = "Did you imagine the motor movement?"
         self.rest_question = "Were you able to maintain a resting state?"
-        self.instructions = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period (+), you will be asked to either imagine a motor movement when you see the \u2022 cue, or to maintain a resting state when you see a blank screen.\n\nAfter each task, you will evaluate your performance.\n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
+        self.instructions = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Baseline\n\u2022 : Motor Imagery\n Blank Screen : Resting State\n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
         self.show_instructions = True
         
         self.setup_ui()
