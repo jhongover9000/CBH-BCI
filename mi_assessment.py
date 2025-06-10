@@ -111,14 +111,85 @@ class EEGMarkerGUI:
         self.show_instructions = True
 
         # Sound
+        self.sound_system_available = False
+        self.sound_backend = "unknown"
         self.beep_sound = None
         self.use_baseline_beep = tk.BooleanVar(value=True)
         self.beep_frequency = 400  # Hz
         self.beep_duration = 0.1   # seconds
+        self.sound_fallback_method = tk.StringVar(value="system")  # "system", "visual", "none"
+        
+
         
         self.setup_ui()
         self.get_available_com_ports()
         self.get_available_monitors()
+
+    def initialize_sound_system(self):
+        self.sound_system_available = False
+        self.sound_backend = "none"
+        
+        # Try different PsychoPy sound backends
+        sound_backends = ['ptb', 'pygame', 'pyo', 'sounddevice']
+        
+        for backend in sound_backends:
+            try:
+                from psychopy import prefs
+                prefs.hardware['audioLib'] = [backend]
+                
+                from psychopy import sound
+                # Force reload of sound module
+                import importlib
+                importlib.reload(sound)
+                
+                # Test creating a simple sound
+                test_sound = sound.Sound(value=440, secs=0.1)
+                
+                self.sound_system_available = True
+                self.sound_backend = backend
+                self.log(f"Sound system initialized successfully with {backend} backend")
+                break
+                
+            except Exception as e:
+                self.log(f"Failed to initialize {backend} sound backend: {e}")
+                continue
+        
+        if not self.sound_system_available:
+            self.log("WARNING: No PsychoPy sound backend available. Using fallback methods.")
+            return False
+        
+        return True
+
+    def create_beep_sound(self):
+        """Create beep sound with error handling"""
+        if not self.sound_system_available:
+            return False
+        
+        try:
+            # Update beep parameters from UI
+            try:
+                self.beep_frequency = float(self.freq_var.get())
+                self.beep_duration = float(self.duration_var.get())
+            except (ValueError, AttributeError):
+                self.log("Invalid beep parameters, using defaults")
+                self.beep_frequency = 800
+                self.beep_duration = 0.1
+            
+            from psychopy import sound
+            self.beep_sound = sound.Sound(
+                value=self.beep_frequency,
+                secs=self.beep_duration,
+                stereo=True,
+                volume=0.5,
+                loops=0
+            )
+            self.log(f"Beep sound created: {self.beep_frequency}Hz for {self.beep_duration}s")
+            return True
+            
+        except Exception as e:
+            self.log(f"Error creating beep sound: {e}")
+            self.beep_sound = None
+            return False
 
     def setup_ui(self):
         # Create main frame
@@ -376,6 +447,8 @@ class EEGMarkerGUI:
         
         # Add a trace to handle monitor selection changes via the dropdown
         self.monitor_dropdown.bind('<<ComboboxSelected>>', self.on_monitor_selected)
+
+        self.startup_sound_check()
 
     def toggle_auto_management(self):
         """Enable/disable manual controls based on auto management setting"""
@@ -950,37 +1023,13 @@ class EEGMarkerGUI:
             )
 
             # Create beep sound stimulus
-            try:
-                from psychopy import sound
-                # Update beep parameters from UI
-                try:
-                    self.beep_frequency = float(self.freq_var.get())
-                    self.beep_duration = float(self.duration_var.get())
-                except ValueError:
-                    self.log("Invalid beep parameters, using defaults")
-                    self.beep_frequency = 800
-                    self.beep_duration = 0.1
-                
-                self.beep_sound = sound.Sound(
-                    value=self.beep_frequency,  # Frequency in Hz
-                    secs=self.beep_duration,    # Duration in seconds
-                    stereo=True,
-                    volume=0.5,                 # Moderate volume
-                    loops=0,                    # Play once
-                    sampleRate=44100,
-                    blockSize=128,
-                    preBuffer=-1,
-                    hamming=True,
-                    startTime=0,
-                    stopTime=-1,
-                    name='baseline_beep',
-                    autoLog=True
-                )
-                self.log(f"Beep sound created: {self.beep_frequency}Hz for {self.beep_duration}s")
-                
-            except Exception as e:
-                self.log(f"Error creating beep sound: {e}")
-                self.beep_sound = None
+            self.initialize_sound_system()
+
+            # Create beep sound if possible
+            if self.sound_system_available:
+                self.create_beep_sound()
+            else:
+                self.log("Sound system not available - beep cues will use fallback method")
 
             # Create video stimulus if video file is specified
             if self.use_instruction_video.get() and self.video_file_path.get():
@@ -1015,6 +1064,65 @@ class EEGMarkerGUI:
             self.log(traceback.format_exc())
             messagebox.showerror("Error", f"Failed to create PsychoPy window:\n{e}")
             return False
+        
+    def play_beep_fallback(self):
+        """Fallback beep methods when PsychoPy sound fails"""
+        fallback_method = self.sound_fallback_method.get()
+        
+        if fallback_method == "system":
+            try:
+                import winsound
+                frequency = int(self.beep_frequency)
+                duration = int(self.beep_duration * 1000)  # Convert to milliseconds
+                winsound.Beep(frequency, duration)
+                self.log(f"System beep played: {frequency}Hz for {duration}ms")
+                return True
+            except ImportError:
+                # Try cross-platform system beep
+                try:
+                    import os
+                    if os.name == 'nt':  # Windows
+                        os.system('echo \a')
+                    else:  # Unix/Linux/Mac
+                        os.system('tput bel')
+                    self.log("System bell played")
+                    return True
+                except:
+                    pass
+        
+        elif fallback_method == "visual":
+            # Visual flash as beep substitute
+            self.visual_beep_flash()
+            return True
+        
+        # If all else fails
+        self.log("No beep method available")
+        return False
+
+    def visual_beep_flash(self):
+        """Visual flash to substitute for audio beep"""
+        if not hasattr(self, 'psychopy_window') or not self.psychopy_window:
+            return
+        
+        try:
+            # Create brief white flash
+            from psychopy import visual
+            flash_stim = visual.Rect(
+                win=self.psychopy_window,
+                width=2, height=2,
+                fillColor='white',
+                lineColor='white'
+            )
+            
+            # Flash for brief moment
+            flash_stim.draw()
+            self.psychopy_window.flip()
+            self.root.after(50, lambda: self.psychopy_window.flip())  # Clear after 50ms
+            
+            self.log("Visual beep flash displayed")
+            
+        except Exception as e:
+            self.log(f"Error creating visual beep: {e}")
     
 
     def schedule_psychopy_update(self):
@@ -1136,6 +1244,48 @@ class EEGMarkerGUI:
         # Start the update cycle
         self.root.after(100, update_psychopy)
         self.log("Scheduled PsychoPy updates in Tkinter event loop")
+
+    def trigger_baseline_beep(self):
+        """Trigger baseline beep with fallback handling"""
+        if not self.use_baseline_beep.get():
+            return
+        
+        success = False
+        
+        # Try PsychoPy sound first
+        if self.beep_sound and self.sound_system_available:
+            try:
+                self.beep_sound.play()
+                success = True
+                self.log(f"Trial {self.current_trial}: PsychoPy beep played")
+            except Exception as e:
+                self.log(f"PsychoPy beep failed: {e}")
+        
+        # Use fallback if PsychoPy failed or unavailable
+        if not success:
+            success = self.play_beep_fallback()
+        
+        # Add to markers with method used
+        method = "psychopy" if (success and self.sound_system_available) else self.sound_fallback_method.get()
+        self.log(f"Trial_{self.current_trial}_Baseline_Beep_{method}")
+
+    # Call this in __init__ after UI setup:
+    def startup_sound_check(self):
+        """Check sound system on startup and update UI"""
+        self.root.after(1000, self._delayed_sound_check)
+
+    def _delayed_sound_check(self):
+        """Delayed sound check to avoid startup conflicts"""
+        self.initialize_sound_system()
+        self.update_sound_status()
+        
+        if not self.sound_system_available:
+            messagebox.showwarning(
+                "Audio System Warning",
+                f"PsychoPy audio system unavailable.\n"
+                f"Fallback method '{self.sound_fallback_method.get()}' will be used for beep cues.\n\n"
+                f"For full audio support, ensure PortAudio drivers are installed."
+            )
 
     def send_marker(self, marker_label):
         """Send a marker through the serial port"""
@@ -1515,13 +1665,8 @@ class EEGMarkerGUI:
     def start_baseline_phase(self):
         """Display fixation cross and handle baseline beep"""
         # Play baseline beep at fixation start
-        if self.use_baseline_beep.get() and self.beep_sound:
-            try:
-                self.beep_sound.play()
-                self.log(f"Trial {self.current_trial}: Baseline beep at fixation")
-            except Exception as e:
-                self.log(f"Error playing baseline beep: {e}")
-                
+        self.trigger_baseline_beep()
+
         self.update_cue("+", "Baseline")
         self.send_marker(self.to_hex(self.baseline))
 
