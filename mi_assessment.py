@@ -69,7 +69,7 @@ class EEGMarkerGUI:
         self.select_rest = tk.BooleanVar(value=True)
 
         # --- Serial Port Variables ---
-        self.com_port = tk.StringVar(value="")
+        self.com_port = tk.StringVar(value="COM4")
         self.available_ports = []
         self.serial_connection = None
         self.baud_rate = tk.IntVar(value=2000000)
@@ -166,14 +166,14 @@ class EEGMarkerGUI:
             return False
         
         try:
-            # Update beep parameters from UI
-            try:
-                self.beep_frequency = float(self.freq_var.get())
-                self.beep_duration = float(self.duration_var.get())
-            except (ValueError, AttributeError):
-                self.log("Invalid beep parameters, using defaults")
-                self.beep_frequency = 800
-                self.beep_duration = 0.1
+            # # Update beep parameters from UI
+            # try:
+            #     self.beep_frequency = float(self.freq_var.get())
+            #     self.beep_duration = float(self.duration_var.get())
+            # except (ValueError, AttributeError):
+            #     self.log("Invalid beep parameters, using defaults")
+            #     self.beep_frequency = 400
+            #     self.beep_duration = 0.1
             
             from psychopy import sound
             self.beep_sound = sound.Sound(
@@ -841,8 +841,8 @@ class EEGMarkerGUI:
             
             # Set selection if needed
             if self.monitor_dropdown.current() < 0 and monitor_values:
-                self.monitor_dropdown.current(0)
-                self.selected_monitor.set(self.monitor_indices[0])
+                self.monitor_dropdown.current(1)
+                self.selected_monitor.set(self.monitor_indices[1])
                 
             self.log(f"Found {len(self.available_monitors)} monitor(s)")
             
@@ -1040,8 +1040,7 @@ class EEGMarkerGUI:
                         pos=(0, 0),
                         size=[1920,1080],  # adjust for monitor!!
                         flipVert=False,
-                        flipHoriz=False,
-                        volume=0.0
+                        flipHoriz=False
                     )
                     self.log("Video stimulus created successfully")
                 except Exception as e:
@@ -1050,6 +1049,7 @@ class EEGMarkerGUI:
             
             # Draw initial text and flip to show it's working
             if self.show_instructions:
+                self.update_instruction_text()
                 self.instruction_stim.draw()
                 self.psychopy_window.flip()
             
@@ -1252,18 +1252,7 @@ class EEGMarkerGUI:
         
         success = False
         
-        # Try PsychoPy sound first
-        if self.beep_sound and self.sound_system_available:
-            try:
-                self.beep_sound.play()
-                success = True
-                self.log(f"Trial {self.current_trial}: PsychoPy beep played")
-            except Exception as e:
-                self.log(f"PsychoPy beep failed: {e}")
-        
-        # Use fallback if PsychoPy failed or unavailable
-        if not success:
-            success = self.play_beep_fallback()
+        success = self.play_beep_fallback()
         
         # Add to markers with method used
         method = "psychopy" if (success and self.sound_system_available) else self.sound_fallback_method.get()
@@ -1391,21 +1380,13 @@ class EEGMarkerGUI:
         is_pre_assessment = not self.is_post_assessment.get()
         
         if is_pre_assessment:
-            self.instruction_text = ("Welcome to the Motor Imagery Assessment.\n\n\n\n"
-                                "You will be asked to either imagine a motor movement or to rest.\n\n"
-                                "After the instructions, you will see a demonstration video.\n\n"
-                                "After each task, you will evaluate your performance.\n\n"
-                                "Press SPACEBAR to begin.")
+            self.instruction = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Baseline\n\u2022 : Motor Imagery\n Blank Screen : Resting State\n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
         else:
-            self.instruction_text = ("Welcome back to the Motor Imagery Assessment.\n\n\n\n"
-                                "This is your post-assessment session.\n\n"
-                                "The procedure is the same as before:\n"
-                                "Imagine motor movements or rest as instructed.\n\n"
-                                "Press SPACEBAR to begin.")
+            self.instruction = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Baseline\n\u2022 : Motor Imagery\n Blank Screen : Resting State\n\nPlease let the experimenter know when you are ready to begin."
         
         # Update the stimulus if it exists
         if hasattr(self, 'instruction_stim'):
-            self.instruction_stim.setText(self.instruction_text)
+            self.instruction_stim.setText(self.instruction)
 
     def start_session(self):
 
@@ -1502,6 +1483,8 @@ class EEGMarkerGUI:
         
         self.log(f"Started {session_type} assessment for subject {subject} at {timestamp}")
         self.send_marker(self.to_hex(self.session_start)) # Mark session start
+
+        self.update_instruction_text()
 
         # Start the first trial after a short delay
         self.root.after(500, self.start_trial)
@@ -1664,8 +1647,6 @@ class EEGMarkerGUI:
 
     def start_baseline_phase(self):
         """Display fixation cross and handle baseline beep"""
-        # Play baseline beep at fixation start
-        self.trigger_baseline_beep()
 
         self.update_cue("+", "Baseline")
         self.send_marker(self.to_hex(self.baseline))
@@ -1682,6 +1663,9 @@ class EEGMarkerGUI:
         """Handles the activity phase (Imagery or Rest)."""
         # Get the activity for the current trial from the pre-shuffled list
         activity = self.trial_activity_sequence[self.current_trial - 1]
+
+        # Play baseline beep at fixation start
+        self.trigger_baseline_beep()
         
         if activity == 'imagery':
             self.update_cue("•", "Motor Imagery")
