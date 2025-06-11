@@ -8,36 +8,36 @@ from tkinter import ttk, messagebox
 from datetime import datetime
 from scipy.io import savemat
 import random
-import UnicornPy
+import unicornpy.UnicornPy as UnicornPy
 
 class EEGMarkerGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Unicorn EEG Marker GUI")
-        self.root.geometry("550x900")
-        self.root.minsize(600, 600)
+        self.root.geometry("900x700")
+        self.root.minsize(900, 600)
 
-        # Adjustable durations (in seconds)
-        self.blank1_duration = tk.IntVar(value=2)
-        self.baseline1_duration = tk.IntVar(value=5)
-        self.motor_duration = tk.IntVar(value=5)
-        self.blank2_duration = tk.IntVar(value=2)
-        self.baseline2_duration = tk.IntVar(value=5)
-        self.imagery_duration = tk.IntVar(value=5)
-        self.rest_duration = tk.IntVar(value=5)
+        # Adjustable durations (in seconds) - updated defaults
+        self.blank1_duration = tk.IntVar(value=0)
+        self.baseline1_duration = tk.IntVar(value=3)  # Default 3 seconds
+        self.motor_duration = tk.IntVar(value=2)      # Default 2 seconds
+        self.blank2_duration = tk.IntVar(value=0)
+        self.imagery_duration = tk.IntVar(value=2)    # Default 2 seconds
+        self.rest_duration = tk.IntVar(value=2)       # Default 2 seconds
 
-        self.total_trials = tk.IntVar(value=10)
+        self.total_trials = tk.IntVar(value=80)
         self.file_format = tk.StringVar(value="fif")
 
-        # Activity selection checkboxes
+        # Activity selection checkboxes - all three activities equally selectable
         self.select_motor_exec = tk.BooleanVar(value=True)
         self.select_motor_imagery = tk.BooleanVar(value=True)
         self.select_rest = tk.BooleanVar(value=True)
 
-        # Randomization Option
-        self.randomize_block_order = tk.BooleanVar(value=False)
+        # Randomization for all three activities
+        self.randomize_activities = tk.BooleanVar(value=True)
 
         self.running = False
+        self._acquisition_running = False
         self.current_trial = 0
         self.eeg_data = []
         self.timestamps = []
@@ -60,9 +60,8 @@ class EEGMarkerGUI:
         # Minimum baseline duration (in seconds) for randomization
         self.min_baseline_duration = 1.5
 
-        # Sequences for balanced randomization
+        # Activity sequence for trials (includes all three activities)
         self.trial_activity_sequence = []
-        self.trial_block_order_sequence = []
 
         self.setup_ui()
         self.setup_unicorn()
@@ -83,163 +82,172 @@ class EEGMarkerGUI:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
+        # Configure column weights for responsive layout
+        scrollable_frame.grid_columnconfigure(0, weight=1)
+        scrollable_frame.grid_columnconfigure(1, weight=1)
+
         self.dynamic_labels = []
         self.dynamic_buttons = []
 
-        row_idx = 0
-
+        # LEFT COLUMN - Device and Timing Settings
+        left_row = 0
+        
         # Device selection
         lbl_device = tk.Label(scrollable_frame, text="Unicorn Device")
-        lbl_device.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
+        lbl_device.grid(row=left_row, column=0, sticky="w", pady=(0, 2), padx=(0, 10)); left_row += 1
         self.dynamic_labels.append(lbl_device)
         
         self.device_var = tk.StringVar()
         self.device_dropdown = ttk.Combobox(scrollable_frame, textvariable=self.device_var, state="readonly")
-        self.device_dropdown.grid(row=row_idx, column=0, sticky="ew", pady=(0, 5)); row_idx += 1
+        self.device_dropdown.grid(row=left_row, column=0, sticky="ew", pady=(0, 5), padx=(0, 10)); left_row += 1
         
         self.refresh_button = tk.Button(scrollable_frame, text="Refresh Devices", command=self.refresh_devices)
-        self.refresh_button.grid(row=row_idx, column=0, sticky="ew", pady=(0, 10)); row_idx += 1
+        self.refresh_button.grid(row=left_row, column=0, sticky="ew", pady=(0, 15), padx=(0, 10)); left_row += 1
         self.dynamic_buttons.append(self.refresh_button)
 
-        # Pre-trial Blank Duration
-        lbl_blank1 = tk.Label(scrollable_frame, text="Pre-Block Blank Duration (s)")
-        lbl_blank1.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
-        self.dynamic_labels.append(lbl_blank1)
-        blank1_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
-                                 variable=self.blank1_duration,
-                                 command=lambda val: self.update_label(self.blank1_val_label, val))
-        blank1_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
-        self.blank1_val_label = tk.Label(scrollable_frame, text=f"{self.blank1_duration.get()} s")
-        self.blank1_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
 
-        # Baseline 1 Duration
+        # Baseline Duration
         lbl_baseline1 = tk.Label(scrollable_frame, text="Pre-Activity Baseline Duration (s)")
-        lbl_baseline1.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
+        lbl_baseline1.grid(row=left_row, column=0, sticky="w", pady=(0, 2), padx=(0, 10)); left_row += 1
         self.dynamic_labels.append(lbl_baseline1)
         baseline1_scale = ttk.Scale(scrollable_frame, from_=self.min_baseline_duration, to=10, orient="horizontal",
                                     variable=self.baseline1_duration,
                                     command=lambda val: self.update_label(self.baseline1_val_label, val))
-        baseline1_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
+        baseline1_scale.grid(row=left_row, column=0, sticky="ew", padx=(0, 10)); left_row += 1
         self.baseline1_val_label = tk.Label(scrollable_frame, text=f"{self.baseline1_duration.get()} s")
-        self.baseline1_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
+        self.baseline1_val_label.grid(row=left_row, column=0, sticky="e", pady=(0, 10), padx=(0, 10)); left_row += 1
 
-        # Motor Execution Duration & Checkbox
+        # Activity Durations Section
+        lbl_activity_durations = tk.Label(scrollable_frame, text="Activity Durations", font=("Arial", 10, "bold"))
+        lbl_activity_durations.grid(row=left_row, column=0, sticky="w", pady=(0, 10), padx=(0, 10)); left_row += 1
+        self.dynamic_labels.append(lbl_activity_durations)
+
+        # Motor Execution Duration
         lbl_motor = tk.Label(scrollable_frame, text="Motor Execution Duration (s)")
-        lbl_motor.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
+        lbl_motor.grid(row=left_row, column=0, sticky="w", pady=(0, 2), padx=(0, 10)); left_row += 1
         self.dynamic_labels.append(lbl_motor)
         motor_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
                                 variable=self.motor_duration,
                                 command=lambda val: self.update_label(self.motor_val_label, val))
-        motor_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
+        motor_scale.grid(row=left_row, column=0, sticky="ew", padx=(0, 10)); left_row += 1
         self.motor_val_label = tk.Label(scrollable_frame, text=f"{self.motor_duration.get()} s")
-        self.motor_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
-        cb_motor = tk.Checkbutton(scrollable_frame, text="Enable Motor Execution Block", variable=self.select_motor_exec)
-        cb_motor.grid(row=row_idx, column=0, sticky="w"); row_idx += 1
-        self.dynamic_buttons.append(cb_motor)
+        self.motor_val_label.grid(row=left_row, column=0, sticky="e", pady=(0, 10), padx=(0, 10)); left_row += 1
 
-        # Inter-Block Blank Duration
-        lbl_blank2 = tk.Label(scrollable_frame, text="Inter-Block Blank Duration (s)")
-        lbl_blank2.grid(row=row_idx, column=0, sticky="w", pady=(10, 2)); row_idx += 1
-        self.dynamic_labels.append(lbl_blank2)
-        blank2_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
-                                 variable=self.blank2_duration,
-                                 command=lambda val: self.update_label(self.blank2_val_label, val))
-        blank2_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
-        self.blank2_val_label = tk.Label(scrollable_frame, text=f"{self.blank2_duration.get()} s")
-        self.blank2_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
-
-        # Baseline 2 Duration
-        lbl_baseline2 = tk.Label(scrollable_frame, text="Inter-Block Baseline Duration (s)")
-        lbl_baseline2.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
-        self.dynamic_labels.append(lbl_baseline2)
-        baseline2_scale = ttk.Scale(scrollable_frame, from_=self.min_baseline_duration, to=10, orient="horizontal",
-                                    variable=self.baseline2_duration,
-                                    command=lambda val: self.update_label(self.baseline2_val_label, val))
-        baseline2_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
-        self.baseline2_val_label = tk.Label(scrollable_frame, text=f"{self.baseline2_duration.get()} s")
-        self.baseline2_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
-
-        # Activity Phase Selection & Durations
-        lbl_activity = tk.Label(scrollable_frame, text="Activity Block Options (choose one or both):")
-        lbl_activity.grid(row=row_idx, column=0, sticky="w", pady=(10, 2)); row_idx += 1
-        self.dynamic_labels.append(lbl_activity)
-        act_frame = tk.Frame(scrollable_frame)
-        act_frame.grid(row=row_idx, column=0, sticky="w", pady=(0, 10)); row_idx += 1
-        cb_imagery = tk.Checkbutton(act_frame, text="Motor Imagery", variable=self.select_motor_imagery)
-        cb_imagery.pack(side="left", padx=(0, 10))
-        self.dynamic_buttons.append(cb_imagery)
-        cb_rest = tk.Checkbutton(act_frame, text="Rest", variable=self.select_rest)
-        cb_rest.pack(side="left")
-        self.dynamic_buttons.append(cb_rest)
-        
-        # Motor Imagery Duration slider
+        # Motor Imagery Duration
         lbl_imagery = tk.Label(scrollable_frame, text="Motor Imagery Duration (s)")
-        lbl_imagery.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
+        lbl_imagery.grid(row=left_row, column=0, sticky="w", pady=(0, 2), padx=(0, 10)); left_row += 1
         self.dynamic_labels.append(lbl_imagery)
         imagery_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
                                   variable=self.imagery_duration,
                                   command=lambda val: self.update_label(self.imagery_val_label, val))
-        imagery_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
+        imagery_scale.grid(row=left_row, column=0, sticky="ew", padx=(0, 10)); left_row += 1
         self.imagery_val_label = tk.Label(scrollable_frame, text=f"{self.imagery_duration.get()} s")
-        self.imagery_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
+        self.imagery_val_label.grid(row=left_row, column=0, sticky="e", pady=(0, 10), padx=(0, 10)); left_row += 1
         
-        # Rest Duration slider
+        # Rest Duration
         lbl_rest = tk.Label(scrollable_frame, text="Rest Duration (s)")
-        lbl_rest.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
+        lbl_rest.grid(row=left_row, column=0, sticky="w", pady=(0, 2), padx=(0, 10)); left_row += 1
         self.dynamic_labels.append(lbl_rest)
         rest_scale = ttk.Scale(scrollable_frame, from_=1, to=10, orient="horizontal",
                                variable=self.rest_duration,
                                command=lambda val: self.update_label(self.rest_val_label, val))
-        rest_scale.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
+        rest_scale.grid(row=left_row, column=0, sticky="ew", padx=(0, 10)); left_row += 1
         self.rest_val_label = tk.Label(scrollable_frame, text=f"{self.rest_duration.get()} s")
-        self.rest_val_label.grid(row=row_idx, column=0, sticky="e", pady=(0, 10)); row_idx += 1
+        self.rest_val_label.grid(row=left_row, column=0, sticky="e", pady=(0, 10), padx=(0, 10)); left_row += 1
 
-        # Randomize Block Order Checkbox
-        cb_random_block = tk.Checkbutton(scrollable_frame, text="Randomize Block Order (Execution vs. Activity)",
-                                         variable=self.randomize_block_order)
-        cb_random_block.grid(row=row_idx, column=0, sticky="w", pady=(5, 10)); row_idx += 1
-        self.dynamic_buttons.append(cb_random_block)
+        # RIGHT COLUMN - Activity Selection and Session Settings
+        right_row = 0
+
+        # Activity Selection Section
+        lbl_activities = tk.Label(scrollable_frame, text="Activity Selection", font=("Arial", 10, "bold"))
+        lbl_activities.grid(row=right_row, column=1, sticky="w", pady=(0, 10), padx=(10, 0)); right_row += 1
+        self.dynamic_labels.append(lbl_activities)
+
+        # Activity Checkboxes
+        cb_motor = tk.Checkbutton(scrollable_frame, text="Enable Motor Execution", variable=self.select_motor_exec)
+        cb_motor.grid(row=right_row, column=1, sticky="w", pady=(0, 5), padx=(10, 0)); right_row += 1
+        self.dynamic_buttons.append(cb_motor)
+
+        cb_imagery = tk.Checkbutton(scrollable_frame, text="Enable Motor Imagery", variable=self.select_motor_imagery)
+        cb_imagery.grid(row=right_row, column=1, sticky="w", pady=(0, 5), padx=(10, 0)); right_row += 1
+        self.dynamic_buttons.append(cb_imagery)
+        
+        cb_rest = tk.Checkbutton(scrollable_frame, text="Enable Rest", variable=self.select_rest)
+        cb_rest.grid(row=right_row, column=1, sticky="w", pady=(0, 10), padx=(10, 0)); right_row += 1
+        self.dynamic_buttons.append(cb_rest)
+
+        # Randomize Activities Checkbox
+        cb_random_activities = tk.Checkbutton(scrollable_frame, text="Randomize Activity Order",
+                                             variable=self.randomize_activities)
+        cb_random_activities.grid(row=right_row, column=1, sticky="w", pady=(0, 15), padx=(10, 0)); right_row += 1
+        self.dynamic_buttons.append(cb_random_activities)
+
+        # Session Settings Section
+        lbl_session = tk.Label(scrollable_frame, text="Session Settings", font=("Arial", 10, "bold"))
+        lbl_session.grid(row=right_row, column=1, sticky="w", pady=(0, 10), padx=(10, 0)); right_row += 1
+        self.dynamic_labels.append(lbl_session)
 
         # Total Trials
         lbl_trials = tk.Label(scrollable_frame, text="Total Trials")
-        lbl_trials.grid(row=row_idx, column=0, sticky="w", pady=(10, 2)); row_idx += 1
+        lbl_trials.grid(row=right_row, column=1, sticky="w", pady=(0, 2), padx=(10, 0)); right_row += 1
         self.dynamic_labels.append(lbl_trials)
         t_spinbox = ttk.Spinbox(scrollable_frame, from_=1, to=100, textvariable=self.total_trials, width=5)
-        t_spinbox.grid(row=row_idx, column=0, sticky="w", pady=(0, 10)); row_idx += 1
+        t_spinbox.grid(row=right_row, column=1, sticky="w", pady=(0, 10), padx=(10, 0)); right_row += 1
 
         # File Format
         lbl_format = tk.Label(scrollable_frame, text="Save Format")
-        lbl_format.grid(row=row_idx, column=0, sticky="w", pady=(0, 2)); row_idx += 1
+        lbl_format.grid(row=right_row, column=1, sticky="w", pady=(0, 2), padx=(10, 0)); right_row += 1
         self.dynamic_labels.append(lbl_format)
         format_menu = ttk.OptionMenu(scrollable_frame, self.file_format, "fif", "fif", "mat")
-        format_menu.grid(row=row_idx, column=0, sticky="ew", pady=(0, 10)); row_idx += 1
+        format_menu.grid(row=right_row, column=1, sticky="ew", pady=(0, 15), padx=(10, 0)); right_row += 1
+
+        # Session Progress Section
+        lbl_progress = tk.Label(scrollable_frame, text="Session Progress", font=("Arial", 10, "bold"))
+        lbl_progress.grid(row=right_row, column=1, sticky="w", pady=(0, 10), padx=(10, 0)); right_row += 1
+        self.dynamic_labels.append(lbl_progress)
 
         # Trial Label
         self.trial_label = tk.Label(scrollable_frame, text="Trial: 0 / 0")
-        self.trial_label.grid(row=row_idx, column=0, pady=(10, 5)); row_idx += 1
+        self.trial_label.grid(row=right_row, column=1, pady=(0, 15), padx=(10, 0)); right_row += 1
 
-        # Logs
-        lbl_logs = tk.Label(scrollable_frame, text="Logs")
-        lbl_logs.grid(row=row_idx, column=0, sticky="w"); row_idx += 1
-        self.dynamic_labels.append(lbl_logs)
-        self.log_box = tk.Text(scrollable_frame, height=8, state="disabled", bg="#f5f5f5")
-        self.log_box.grid(row=row_idx, column=0, sticky="nsew", pady=(0, 10)); row_idx += 1
-        scrollable_frame.grid_rowconfigure(row_idx -1, weight=2)
+        # Control Buttons
+        lbl_controls = tk.Label(scrollable_frame, text="Session Control", font=("Arial", 10, "bold"))
+        lbl_controls.grid(row=right_row, column=1, sticky="w", pady=(0, 10), padx=(10, 0)); right_row += 1
+        self.dynamic_labels.append(lbl_controls)
 
-        # Start and Stop Buttons
         self.start_button = tk.Button(scrollable_frame, text="Start Session", command=self.start_session)
-        self.start_button.grid(row=row_idx, column=0, sticky="ew", pady=(0, 5)); row_idx += 1
+        self.start_button.grid(row=right_row, column=1, sticky="ew", pady=(0, 5), padx=(10, 0)); right_row += 1
         self.dynamic_buttons.append(self.start_button)
+        
         self.stop_button = tk.Button(scrollable_frame, text="Stop and Save", command=self.stop_session, state="disabled")
-        self.stop_button.grid(row=row_idx, column=0, sticky="ew"); row_idx += 1
+        self.stop_button.grid(row=right_row, column=1, sticky="ew", pady=(0, 15), padx=(10, 0)); right_row += 1
         self.dynamic_buttons.append(self.stop_button)
 
+        # Logs - Right column only
+        lbl_logs = tk.Label(scrollable_frame, text="Logs", font=("Arial", 10, "bold"))
+        lbl_logs.grid(row=right_row, column=1, sticky="w", pady=(0, 10), padx=(10, 0)); right_row += 1
+        self.dynamic_labels.append(lbl_logs)
+        
+        self.log_box = tk.Text(scrollable_frame, height=8, state="disabled", bg="#f5f5f5")
+        self.log_box.grid(row=right_row, column=1, sticky="nsew", pady=(0, 10), padx=(10, 0)); right_row += 1
+        scrollable_frame.grid_rowconfigure(right_row-1, weight=1)
+
     def update_label(self, label_widget, val):
-        if label_widget in [self.baseline1_val_label, self.baseline2_val_label]:
+        if label_widget in [self.baseline1_val_label]:
             fval = max(float(val), self.min_baseline_duration)
             label_widget.config(text=f"{fval:.1f} s")
         else:
             label_widget.config(text=f"{int(float(val))} s")
+
+    def log(self, message):
+        def _log_update():
+            if self.log_box.winfo_exists():
+                self.log_box.config(state="normal")
+                timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                self.log_box.insert("end", f"[{timestamp}] {message}\n")
+                self.log_box.config(state="disabled")
+                self.log_box.see("end")
+        self.root.after(0, _log_update)
 
     def update_cue(self, symbol, title):
         if hasattr(self, 'cue_win') and self.cue_win.winfo_exists():
@@ -261,23 +269,6 @@ class EEGMarkerGUI:
             
             # Get available devices
             self.refresh_devices()
-            
-            # Set up channel information based on configuration
-            config = self.unicorn_device.GetConfiguration()
-            
-            # Get EEG channel names from the configuration
-            self.eeg_channels = []
-            self.eeg_indices = []
-            
-            for i in range(UnicornPy.EEGChannelsCount):
-                channel_idx = UnicornPy.EEGConfigIndex + i
-                if channel_idx < len(config.Channels):
-                    channel = config.Channels[channel_idx]
-                    if channel.Enabled:
-                        self.eeg_channels.append(channel.Name)
-                        self.eeg_indices.append(i)
-            
-            self.log(f"Active EEG channels: {', '.join(self.eeg_channels)}")
             
         except Exception as e:
             self.log(f"Error during Unicorn setup: {e}")
@@ -364,17 +355,20 @@ class EEGMarkerGUI:
             
             # Update our channel information after configuration
             self.eeg_channels = []
+            self.eeg_indices = []
             enabled_count = 0
             for i in range(UnicornPy.EEGChannelsCount):
                 channel_idx = UnicornPy.EEGConfigIndex + i
                 channel = config.Channels[channel_idx]
                 if channel.Enabled:
                     self.eeg_channels.append(channel.Name)
+                    self.eeg_indices.append(i)
                     enabled_count += 1
             
             self.num_acquired_channels = self.unicorn_device.GetNumberOfAcquiredChannels()
             self.log(f"Number of acquired channels: {self.num_acquired_channels}")
             self.log(f"Enabled EEG channels: {', '.join(self.eeg_channels)}")
+            self.log(f"EEG channel indices: {self.eeg_indices}")
             
             return True
             
@@ -462,48 +456,51 @@ class EEGMarkerGUI:
             messagebox.showerror("Error", "Total trials must be greater than 0.")
             return
 
+        # Check which activities are selected
         motor_selected = self.select_motor_exec.get()
         imagery_selected = self.select_motor_imagery.get()
         rest_selected = self.select_rest.get()
-        activity_selected = imagery_selected or rest_selected
 
-        if not motor_selected and not activity_selected:
-            messagebox.showerror("Error", "At least one block type (Motor Execution or an Activity) must be selected.")
+        if not (motor_selected or imagery_selected or rest_selected):
+            messagebox.showerror("Error", "At least one activity type must be selected.")
             return
 
-        if self.randomize_block_order.get() and not (motor_selected and activity_selected):
-            messagebox.showwarning("Warning", "Randomize Block Order selected, but only one block type is enabled.")
-            self.randomize_block_order.set(False)
-
-        # Generate Trial Sequences
+        # Generate Activity Sequence for all trials
         self.trial_activity_sequence = []
-        self.trial_block_order_sequence = []
+        selected_activities = []
+        
+        if motor_selected:
+            selected_activities.append('motor_execution')
+        if imagery_selected:
+            selected_activities.append('motor_imagery')
+        if rest_selected:
+            selected_activities.append('rest')
 
-        if activity_selected:
-            if imagery_selected and rest_selected:
-                num_imagery = n_trials // 2
-                num_rest = n_trials - num_imagery
-                self.trial_activity_sequence = ['imagery'] * num_imagery + ['rest'] * num_rest
-                random.shuffle(self.trial_activity_sequence)
-                self.log(f"Generated balanced Imagery/Rest sequence for {n_trials} trials.")
-            elif imagery_selected:
-                self.trial_activity_sequence = ['imagery'] * n_trials
-            else:
-                self.trial_activity_sequence = ['rest'] * n_trials
-
-        if motor_selected and activity_selected and self.randomize_block_order.get():
-            num_motor_first = n_trials // 2
-            num_activity_first = n_trials - num_motor_first
-            self.trial_block_order_sequence = ['motor_first'] * num_motor_first + ['activity_first'] * num_activity_first
-            random.shuffle(self.trial_block_order_sequence)
-            self.log(f"Generated randomized Block Order sequence for {n_trials} trials.")
-        elif motor_selected:
-            self.trial_block_order_sequence = ['motor_first'] * n_trials
+        if self.randomize_activities.get() and len(selected_activities) > 1:
+            # Balanced randomization across all selected activities
+            activities_per_type = n_trials // len(selected_activities)
+            remainder = n_trials % len(selected_activities)
+            
+            for i, activity in enumerate(selected_activities):
+                count = activities_per_type + (1 if i < remainder else 0)
+                self.trial_activity_sequence.extend([activity] * count)
+            
+            random.shuffle(self.trial_activity_sequence)
+            self.log(f"Generated balanced randomized sequence for {n_trials} trials across {len(selected_activities)} activities.")
+            self.log(f"Activity distribution: {dict(zip(*np.unique(self.trial_activity_sequence, return_counts=True)))}")
         else:
-            self.trial_block_order_sequence = ['activity_first'] * n_trials
+            # Sequential or single activity
+            if len(selected_activities) == 1:
+                self.trial_activity_sequence = selected_activities * n_trials
+            else:
+                # Sequential cycling through activities
+                for i in range(n_trials):
+                    self.trial_activity_sequence.append(selected_activities[i % len(selected_activities)])
+            self.log(f"Generated sequential activity sequence for {n_trials} trials.")
 
         # Start Recording
         self.running = True
+        self._acquisition_running = False  # Initialize as False
         self.start_button.config(state="disabled")
         self.stop_button.config(state="normal")
         self.eeg_data = []
@@ -532,251 +529,275 @@ class EEGMarkerGUI:
             self.log(f"Recording started. LSL Start Time: {self.start_timestamp:.4f}")
             
             # Start acquisition on device
+            self.log("Starting Unicorn data acquisition...")
             self.unicorn_device.StartAcquisition(False)  # False for non-test signal
             self._acquisition_running = True
+            self.log("Unicorn acquisition started successfully")
             
             self._send_marker("session_start")
 
             # Start the recording thread
+            self.log("Starting recording thread...")
             self.recording_thread = threading.Thread(target=self.record_loop, daemon=True)
             self.recording_thread.start()
+            self.log("Recording thread started")
 
             # Start the first trial after a short delay
             self.root.after(500, self.start_trial)
 
         except Exception as e:
             self.log(f"Error starting recording: {e}")
+            import traceback
+            self.log(f"Full traceback: {traceback.format_exc()}")
             self.stop_session()
-            messagebox.showerror("Error", f"Failed to start recording:\n{e}")
-
-    def stop_session(self):
-        if not self.running:
-            return
-        self.running = False
-        self.log("Stopping session...")
-        self._send_marker("session_end")
-
-        # Stop Unicorn acquisition
-        if hasattr(self, '_acquisition_running') and self._acquisition_running:
-            try:
-                self.unicorn_device.StopAcquisition()
-                self._acquisition_running = False
-            except Exception as e:
-                self.log(f"Error stopping acquisition: {e}")
-
-        # Wait briefly for the recording thread to finish
-        if hasattr(self, 'recording_thread') and self.recording_thread.is_alive():
-            time.sleep(0.1)
-
-        if hasattr(self, 'cue_win') and self.cue_win.winfo_exists():
-            self.cue_win.destroy()
-
-        # Cancel any pending after calls
-        for after_id in self.root.tk.call('after', 'info'):
-            self.root.after_cancel(after_id)
-
-        self.start_button.config(state="normal")
-        self.stop_button.config(state="disabled")
-
-        self.root.unbind("<Escape>")
-
-        if not self.eeg_data:
-            self.log("No EEG data recorded.")
-        else:
-            self.log("Recording stopped. Saving data...")
-            self.save_data()
-
-        # Disconnect from device
-        self.disconnect_unicorn()
+            messagebox.showerror("Error", f"Failed to start recording: {e}")
 
     def start_trial(self):
-        """Initiates a single trial."""
-        if not self.running or self.current_trial >= self.total_trials.get():
-            if self.running:
-                self.stop_session()
+        """Start a single trial with the appropriate activity."""
+        if not self.running or self.current_trial >= len(self.trial_activity_sequence):
+            self.complete_session()
             return
 
-        self.current_trial += 1
-        self.trial_label.config(text=f"Trial: {self.current_trial} / {self.total_trials.get()}")
-        self.log(f"\n--- Starting Trial {self.current_trial} ---")
+        current_activity = self.trial_activity_sequence[self.current_trial]
+        self.log(f"Starting Trial {self.current_trial + 1}: {current_activity}")
+        self.trial_label.config(text=f"Trial: {self.current_trial + 1} / {len(self.trial_activity_sequence)} ({current_activity})")
 
-        current_block_order = self.trial_block_order_sequence[self.current_trial - 1]
-        self.log(f"Trial {self.current_trial} Order: {current_block_order}")
-
-        self.start_blank_phase(is_first_block=True, next_phase='baseline1')
-
-    # Phase Control Functions (same as original)
-    def start_blank_phase(self, is_first_block, next_phase):
-        duration = self.blank1_duration.get() if is_first_block else self.blank2_duration.get()
-        marker = 'blank_pre' if is_first_block else 'blank_inter'
+        # Pre-block blank
         self.update_cue("", "Blank")
-        self._send_marker(marker)
-        self.log(f"Phase: {marker} ({duration} s)")
-        self.root.after(duration * 1000, getattr(self, f'start_{next_phase}_phase'))
+        self._send_marker(f"trial_{self.current_trial + 1}_blank_start")
+        self.root.after(int(self.blank1_duration.get() * 1000), 
+                       lambda: self.start_baseline(current_activity))
 
-    def start_baseline1_phase(self):
+    def start_baseline(self, activity_type):
+        """Start the pre-activity baseline."""
+        if not self.running:
+            return
+        
         self.update_cue("+", "Baseline")
-        self._send_marker('baseline_1')
-
+        self._send_marker(f"trial_{self.current_trial + 1}_baseline_start")
+        
         max_duration = self.baseline1_duration.get()
         duration_randomized = random.uniform(self.min_baseline_duration, max_duration)
-        self.log(f"Phase: Baseline 1 ({duration_randomized:.2f} s)")
+        self.log(f"Phase: Baseline ({duration_randomized:.2f} s)")
+        
+        self.root.after(int(duration_randomized * 1000), 
+                       lambda: self.start_activity(activity_type))
 
-        first_block_type = self.trial_block_order_sequence[self.current_trial - 1]
-        if first_block_type == 'motor_first':
-            next_func = self.start_motor_execution_phase
-        else:
-            next_func = self.start_activity_phase
-
-        self.root.after(int(duration_randomized * 1000), next_func, True)
-
-    def start_baseline2_phase(self):
-        self.update_cue("+", "Baseline")
-        self._send_marker('baseline_2')
-
-        max_duration = self.baseline2_duration.get()
-        duration_randomized = random.uniform(self.min_baseline_duration, max_duration)
-        self.log(f"Phase: Baseline 2 ({duration_randomized:.2f} s)")
-
-        first_block_type = self.trial_block_order_sequence[self.current_trial - 1]
-        if first_block_type == 'motor_first':
-            next_func = self.start_activity_phase
-        else:
-            next_func = self.start_motor_execution_phase
-
-        self.root.after(int(duration_randomized * 1000), next_func, False)
-
-    def start_motor_execution_phase(self, is_first_block):
-        if not self.select_motor_exec.get():
-            self.log("Motor Execution skipped (not selected)")
-            if is_first_block:
-                self.start_blank_phase(is_first_block=False, next_phase='baseline2')
-            else:
-                self.start_trial()
+    def start_activity(self, activity_type):
+        """Start the main activity (motor execution, motor imagery, or rest)."""
+        if not self.running:
             return
 
-        self.update_cue("M", "Motor Execution")
-        self._send_marker('execution_start')
-        duration = self.motor_duration.get()
-        self.log(f"Phase: Motor Execution ({duration} s)")
-
-        self.root.after(duration * 1000, self.end_motor_execution_phase, is_first_block)
-
-    def end_motor_execution_phase(self, is_first_block):
-        self._send_marker('execution_end')
-        if is_first_block:
-            self.start_blank_phase(is_first_block=False, next_phase='baseline2')
-        else:
-            self.start_trial()
-
-    def start_activity_phase(self, is_first_block):
-        if not (self.select_motor_imagery.get() or self.select_rest.get()):
-            self.log("Activity Phase skipped (none selected)")
-            if is_first_block:
-                self.start_blank_phase(is_first_block=False, next_phase='baseline2')
-            else:
-                self.start_trial()
-            return
-
-        activity = self.trial_activity_sequence[self.current_trial - 1]
-        marker_start = f"{activity}_start"
-
-        if activity == 'imagery':
+        if activity_type == 'motor_execution':
+            self.update_cue("M", "Motor Execution")
+            duration = self.motor_duration.get()
+            self._send_marker(f"trial_{self.current_trial + 1}_motor_execution_start")
+            self.log(f"Phase: Motor Execution ({duration} s)")
+        elif activity_type == 'motor_imagery':
             self.update_cue("I", "Motor Imagery")
             duration = self.imagery_duration.get()
+            self._send_marker(f"trial_{self.current_trial + 1}_motor_imagery_start")
             self.log(f"Phase: Motor Imagery ({duration} s)")
-        else:
+        elif activity_type == 'rest':
             self.update_cue("", "Rest")
             duration = self.rest_duration.get()
+            self._send_marker(f"trial_{self.current_trial + 1}_rest_start")
             self.log(f"Phase: Rest ({duration} s)")
-
-        self._send_marker(marker_start)
-        self.root.after(duration * 1000, self.end_activity_phase, is_first_block, activity)
-
-    def end_activity_phase(self, is_first_block, activity_type):
-        marker_end = f"{activity_type}_end"
-        self._send_marker(marker_end)
-        if is_first_block:
-            self.start_blank_phase(is_first_block=False, next_phase='baseline2')
         else:
-            self.start_trial()
+            self.log(f"Unknown activity type: {activity_type}")
+            return
+
+        self.root.after(int(duration * 1000), self.start_inter_block_blank)
+
+    def start_inter_block_blank(self):
+        """Start the inter-block blank period."""
+        if not self.running:
+            return
+        
+        self.update_cue("", "Blank")
+        self._send_marker(f"trial_{self.current_trial + 1}_blank_end")
+        duration = self.blank2_duration.get()
+        self.log(f"Phase: Inter-block blank ({duration} s)")
+        self.root.after(int(duration * 1000), self.end_trial)
+
+    def end_trial(self):
+        """End the current trial and move to the next."""
+        if not self.running:
+            return
+        
+        self._send_marker(f"trial_{self.current_trial + 1}_end")
+        self.current_trial += 1
+        
+        # Continue to next trial or complete session
+        if self.current_trial < len(self.trial_activity_sequence):
+            self.root.after(500, self.start_trial)
+        else:
+            self.complete_session()
+
+    def complete_session(self):
+        """Complete the entire session."""
+        self.log("Session completed!")
+        self.update_cue("✓", "Session Complete")
+        self._send_marker("session_end")
+        self.root.after(2000, self.stop_session)
 
     # Data Recording
     def record_loop(self):
         """Recording loop for Unicorn device."""
         self.log("EEG recording thread started.")
         
-        # Calculate buffer size for approximately 50ms chunks
-        buffer_size = int(self.sfreq * 0.05)  # 50ms worth of samples
-        
-        # Allocate bytearray for receiving data as specified in API
-        # Each scan has num_acquired_channels floats, each float is 4 bytes
-        bytes_per_scan = self.num_acquired_channels * 4
-        total_bytes = buffer_size * bytes_per_scan
-        receive_buffer = bytearray(total_bytes)
-        
-        # Also create a numpy view for easier data manipulation
-        float_buffer = np.frombuffer(receive_buffer, dtype=np.float32)
-        
-        while self.running:
-            try:
-                # Get data from Unicorn device
-                self.unicorn_device.GetData(buffer_size, receive_buffer, len(float_buffer))
-                
-                # Create timestamps for this chunk
-                current_time = local_clock()
-                chunk_timestamps = np.linspace(
-                    current_time - (buffer_size / self.sfreq),
-                    current_time,
-                    buffer_size
-                )
-                
-                # Reshape the flat buffer into scans x channels
-                data_array = float_buffer.reshape(buffer_size, self.num_acquired_channels)
-                
-                # Extract only EEG channels (first 8 channels when all are acquired)
-                eeg_data = data_array[:, :self.num_eeg_channels]
-                
-                # Convert to list format and append
-                self.eeg_data.extend(eeg_data.tolist())
-                self.timestamps.extend(chunk_timestamps)
-                
-            except UnicornPy.DeviceException as e:
-                if self.running:
-                    self.log(f"Device error in recording loop: {e}")
-                    if hasattr(e, 'code'):
-                        if e.code == UnicornPy.ErrorConnectionProblem:
-                            self.log("Connection lost. Stopping recording...")
-                            self.root.after(0, self.stop_session)
-                            break
-                        elif e.code == UnicornPy.ErrorBufferOverflow:
-                            self.log("Buffer overflow - data loss may have occurred")
-                        elif e.code == UnicornPy.ErrorBufferUnderflow:
-                            self.log("Buffer underflow - waiting for data")
-                    time.sleep(0.5)
-            except Exception as e:
-                if self.running:
-                    self.log(f"Error in recording loop: {e}")
-                    time.sleep(0.5)
+        try:
+            # Get the exact number of acquired channels
+            self.num_acquired_channels = self.unicorn_device.GetNumberOfAcquiredChannels()
+            
+            # Calculate buffer size for approximately 50ms chunks
+            buffer_size = int(self.sfreq * 0.05)  # 50ms worth of samples
+            
+            # Allocate bytearray for receiving data as specified in API
+            # Each scan has num_acquired_channels floats, each float is 4 bytes
+            bytes_per_scan = self.num_acquired_channels * 4
+            total_bytes = buffer_size * bytes_per_scan
+            receive_buffer = bytearray(total_bytes)
+            
+            # Also create a numpy view for easier data manipulation
+            float_buffer = np.frombuffer(receive_buffer, dtype=np.float32)
+            
+            self.log(f"Recording parameters:")
+            self.log(f"  - Buffer size: {buffer_size} samples (50ms)")
+            self.log(f"  - Acquired channels: {self.num_acquired_channels}")
+            self.log(f"  - EEG channels: {self.num_eeg_channels}")
+            self.log(f"  - Bytes per scan: {bytes_per_scan}")
+            self.log(f"  - Total buffer bytes: {total_bytes}")
+            
+            data_chunks_collected = 0
+            
+            while self.running and self._acquisition_running:
+                try:
+                    # Get data from Unicorn device
+                    self.unicorn_device.GetData(buffer_size, receive_buffer, len(float_buffer))
                     
-        self.log("EEG recording thread finished.")
+                    # Create timestamps for this chunk
+                    current_time = local_clock()
+                    chunk_timestamps = np.linspace(
+                        current_time - (buffer_size / self.sfreq),
+                        current_time,
+                        buffer_size,
+                        endpoint=False
+                    )
+                    
+                    # Reshape the flat buffer into scans x channels
+                    data_array = float_buffer.reshape(buffer_size, self.num_acquired_channels)
+                    
+                    # Extract only EEG channels (first 8 channels when all are acquired)
+                    eeg_data = data_array[:, :self.num_eeg_channels]
+                    
+                    # Convert to list format and append
+                    self.eeg_data.extend(eeg_data.tolist())
+                    self.timestamps.extend(chunk_timestamps)
+                    
+                    data_chunks_collected += 1
+                    
+                    # Log progress every 200 chunks (10 seconds at 50ms chunks)
+                    if data_chunks_collected % 200 == 0:
+                        total_samples = len(self.timestamps)
+                        duration = total_samples / self.sfreq
+                        self.log(f"Collected {data_chunks_collected} chunks, "
+                               f"{total_samples} samples, {duration:.1f}s duration")
+                    
+                except UnicornPy.DeviceException as e:
+                    if self.running:
+                        self.log(f"Device error in recording loop: {e}")
+                        if hasattr(e, 'code'):
+                            if e.code == UnicornPy.ErrorConnectionProblem:
+                                self.log("Connection lost. Stopping recording...")
+                                self.root.after(0, self.stop_session)
+                                break
+                            elif e.code == UnicornPy.ErrorBufferOverflow:
+                                self.log("Buffer overflow - data loss may have occurred")
+                            elif e.code == UnicornPy.ErrorBufferUnderflow:
+                                self.log("Buffer underflow - waiting for data")
+                        time.sleep(0.5)
+                except Exception as e:
+                    if self.running:
+                        self.log(f"Error in recording loop: {e}")
+                        import traceback
+                        self.log(f"Traceback: {traceback.format_exc()}")
+                        time.sleep(0.5)
+                        
+        except Exception as e:
+            self.log(f"Fatal error in recording loop setup: {e}")
+            import traceback
+            self.log(f"Full traceback: {traceback.format_exc()}")
+        finally:
+            self._acquisition_running = False
+            total_chunks = len(self.eeg_data) if hasattr(self, 'eeg_data') else 0
+            total_samples = len(self.timestamps) if hasattr(self, 'timestamps') else 0
+            duration = total_samples / self.sfreq if total_samples > 0 else 0
+            self.log(f"EEG recording thread finished. Collected {total_chunks} samples, "
+                   f"{duration:.2f} seconds of data.")
 
-    def log(self, message):
-        def _log_update():
-            if self.log_box.winfo_exists():
-                self.log_box.config(state="normal")
-                timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                self.log_box.insert("end", f"[{timestamp}] {message}\n")
-                self.log_box.config(state="disabled")
-                self.log_box.see("end")
-        self.root.after(0, _log_update)
+    def stop_session(self):
+        """Stop the recording session and save data."""
+        if not self.running:
+            return
+        
+        self.log("Stopping recording session...")
+        self.running = False
+        
+        # Close cue window
+        if hasattr(self, 'cue_win') and self.cue_win.winfo_exists():
+            self.cue_win.destroy()
+        
+        # Stop Unicorn acquisition
+        try:
+            if self.unicorn_device and hasattr(self, '_acquisition_running') and self._acquisition_running:
+                self.log("Stopping Unicorn data acquisition...")
+                self.unicorn_device.StopAcquisition()
+                self._acquisition_running = False
+                self.log("Unicorn acquisition stopped")
+        except Exception as e:
+            self.log(f"Error stopping acquisition: {e}")
+        
+        # Wait for recording thread to finish
+        if hasattr(self, 'recording_thread') and self.recording_thread.is_alive():
+            self.log("Waiting for recording thread to finish...")
+            self.recording_thread.join(timeout=5.0)
+            if self.recording_thread.is_alive():
+                self.log("Warning: Recording thread did not finish in time")
+            else:
+                self.log("Recording thread finished successfully")
+        
+        # Send final marker
+        if self.marker_outlet:
+            self._send_marker("session_end")
+        
+        # Save data
+        self.save_data()
+        
+        # Reset UI
+        self.start_button.config(state="normal")
+        self.stop_button.config(state="disabled")
+        self.trial_label.config(text="Trial: 0 / 0")
+        
+        # Disconnect from device
+        self.disconnect_unicorn()
+        
+        self.log("Session stopped and data saved.")
 
     def save_data(self):
+        """Save the recorded EEG data and markers."""
+        self.log(f"Attempting to save data...")
+        self.log(f"EEG data samples collected: {len(self.eeg_data) if self.eeg_data else 0}")
+        self.log(f"Timestamps collected: {len(self.timestamps) if self.timestamps else 0}")
+        self.log(f"Markers collected: {len(self.markers)}")
+        
         if not self.eeg_data:
-            self.log("No data to save.")
+            self.log("No EEG data to save.")
+            messagebox.showwarning("No Data", "No EEG data was collected during the session.")
             return
-
+        
         try:
+            # Convert list data to numpy array
             eeg_array = np.array(self.eeg_data).T  # Transpose for MNE (channels x samples)
             times_lsl = np.array(self.timestamps)
 
@@ -787,7 +808,11 @@ class EEGMarkerGUI:
                 times_lsl = times_lsl[:min_len]
 
             # Create MNE Info object
-            ch_names = self.eeg_channels
+            if eeg_array.shape[0] == 8:
+                ch_names = ['Fz', 'C3', 'Cz', 'C4', 'Pz', 'PO7', 'Oz', 'PO8']
+            else:
+                ch_names = [f"EEG_{i+1}" for i in range(eeg_array.shape[0])]
+                
             ch_types = ['eeg'] * len(ch_names)
             info = mne.create_info(ch_names=ch_names, sfreq=self.sfreq, ch_types=ch_types)
             info['description'] = f"Unicorn recording started at {datetime.fromtimestamp(self.recording_start_time).strftime('%Y-%m-%d %H:%M:%S')}"
@@ -846,6 +871,14 @@ class EEGMarkerGUI:
                         self.log(f"Verified {len(raw_check.annotations)} annotations in saved file.")
                 except Exception as e:
                     self.log(f"Error verifying saved FIF file: {e}")
+                    
+                # Show success message
+                messagebox.showinfo("Save Successful", 
+                                  f"Data saved successfully!\n"
+                                  f"File: {filename}\n"
+                                  f"Shape: {eeg_array.shape}\n"
+                                  f"Duration: {eeg_array.shape[1] / self.sfreq:.2f} seconds\n"
+                                  f"Markers: {len(self.markers)}")
 
             elif save_format == "mat":
                 mat_dict = {
@@ -865,6 +898,14 @@ class EEGMarkerGUI:
 
                 savemat(filename, mat_dict)
                 self.log(f"Data saved to {filename}")
+                
+                # Show success message
+                messagebox.showinfo("Save Successful", 
+                                  f"Data saved successfully!\n"
+                                  f"File: {filename}\n"
+                                  f"Shape: {eeg_array.shape}\n"
+                                  f"Duration: {eeg_array.shape[1] / self.sfreq:.2f} seconds\n"
+                                  f"Markers: {len(self.markers)}")
 
             else:
                 self.log(f"Error: Unknown file format '{save_format}'")
@@ -872,7 +913,7 @@ class EEGMarkerGUI:
         except Exception as e:
             self.log(f"Error during data saving: {e}")
             import traceback
-            self.log(traceback.format_exc())
+            self.log(f"Full traceback: {traceback.format_exc()}")
             messagebox.showerror("Save Error", f"An error occurred while saving data:\n{e}")
 
 
