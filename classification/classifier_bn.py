@@ -1,13 +1,13 @@
 '''
-CLASSIFIER (W MODEL BATCH NORMALIZATION) - Incremental LOSO with Persistent Timestamp
+Incremental LOSO with Persistent Timestamp
 
 Description: Classification training for a model with batch normalization,
              modified for incremental LOSO processing, result appending,
              and persistent timestamp handling to ensure resumed runs
              append to the original run's files.
-Should be run as 'python -m classification.classifier_bn_incremental_persistent' # Example name
+Should be run as 'python -m classification.classifier_bn' (if from same file hierarchy as repo)
 
-Joseph Hong (Modified for Incremental Processing & Persistence)
+Joseph Hong
 
 '''
 
@@ -330,11 +330,7 @@ for i in range(start_subject_index, len(unique_subject_list)):
     else:
          print(f"Error: Unknown model_choice '{model_choice}'")
          continue # Skip subject
-
-
-    # Load Pre-trained Weights (Optional) - Keep commented if not using
-    # ...
-
+    
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate, weight_decay=weight_decay),
         loss="categorical_crossentropy",
@@ -347,7 +343,7 @@ for i in range(start_subject_index, len(unique_subject_list)):
     callbacks = [
         # EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1),
         ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=0.00001, verbose=1),
-        ModelCheckpoint(model_checkpoint_path, monitor='val_loss', save_best_only=True, save_weights_only=True, verbose=0)
+        ModelCheckpoint(model_checkpoint_path, monitor='val_loss', save_best_only=False, save_weights_only=True, verbose=0)
     ]
 
     print_memory_usage()
@@ -442,7 +438,7 @@ for i in range(start_subject_index, len(unique_subject_list)):
             try:
                 with open(shap_filename, "wb") as fp:
                     pickle.dump(shap_values, fp)
-                # print(f"Saved SHAP values for subject {subject} to {shap_filename}") # Optional verbose
+                # print(f"Saved SHAP values for subject {subject} to {shap_filename}")
             except Exception as e:
                 print(f"Error saving SHAP values for subject {subject}: {e}")
             del e, shap_values, background
@@ -468,7 +464,7 @@ for i in range(start_subject_index, len(unique_subject_list)):
     del model, X_train, y_train, X_test, y_test, X_train_subj, y_train_subj, X_test_subj, y_test_subj
     del y_pred_prob, y_pred_classes, y_test_classes, conf_matrix_subject, subject_predictions
     del history, callbacks # Explicitly delete large objects
-    # print_memory_usage() # Optional verbose
+    # print_memory_usage()
     clear_tf_memory()
     gc.collect()
     print(f"===== Finished processing Subject {subject} =====")
