@@ -564,7 +564,6 @@ class EEGMarkerGUI:
 
         # Pre-block blank
         self.update_cue("", "Blank")
-        self._send_marker(f"trial_{self.current_trial + 1}_blank_start")
         self.root.after(int(self.blank1_duration.get() * 1000), 
                        lambda: self.start_baseline(current_activity))
 
@@ -574,7 +573,7 @@ class EEGMarkerGUI:
             return
         
         self.update_cue("+", "Baseline")
-        self._send_marker(f"trial_{self.current_trial + 1}_baseline_start")
+        self._send_marker(f"baseline")
         
         max_duration = self.baseline1_duration.get()
         duration_randomized = random.uniform(self.min_baseline_duration, max_duration)
@@ -591,17 +590,17 @@ class EEGMarkerGUI:
         if activity_type == 'motor_execution':
             self.update_cue("M", "Motor Execution")
             duration = self.motor_duration.get()
-            self._send_marker(f"trial_{self.current_trial + 1}_motor_execution_start")
+            self._send_marker(f"motor_execution")
             self.log(f"Phase: Motor Execution ({duration} s)")
         elif activity_type == 'motor_imagery':
             self.update_cue("I", "Motor Imagery")
             duration = self.imagery_duration.get()
-            self._send_marker(f"trial_{self.current_trial + 1}_motor_imagery_start")
+            self._send_marker(f"motor_imagery")
             self.log(f"Phase: Motor Imagery ({duration} s)")
         elif activity_type == 'rest':
             self.update_cue("", "Rest")
             duration = self.rest_duration.get()
-            self._send_marker(f"trial_{self.current_trial + 1}_rest_start")
+            self._send_marker(f"rest")
             self.log(f"Phase: Rest ({duration} s)")
         else:
             self.log(f"Unknown activity type: {activity_type}")
@@ -615,7 +614,6 @@ class EEGMarkerGUI:
             return
         
         self.update_cue("", "Blank")
-        self._send_marker(f"trial_{self.current_trial + 1}_blank_end")
         duration = self.blank2_duration.get()
         self.log(f"Phase: Inter-block blank ({duration} s)")
         self.root.after(int(duration * 1000), self.end_trial)
@@ -625,7 +623,6 @@ class EEGMarkerGUI:
         if not self.running:
             return
         
-        self._send_marker(f"trial_{self.current_trial + 1}_end")
         self.current_trial += 1
         
         # Continue to next trial or complete session

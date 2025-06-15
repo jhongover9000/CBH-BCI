@@ -78,7 +78,7 @@ def logTime(message):
 
 # =============================================================
 # =============================================================
-# EXECUTION 
+# EXECUTION
 
 # Argument parsing
 parser = argparse.ArgumentParser(description="BCI System")
