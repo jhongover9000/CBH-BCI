@@ -390,7 +390,7 @@ class AdaptiveERDDetector:
 
 
 #==========================================================================================
-# ENHANCED GUI CLASS
+# GUI CLASS
 
 class ERDDetectionGUI:
     """
