@@ -1,6 +1,6 @@
 '''
-Complete ERD Detection System for BrainVision ActiChamp EEG Streaming
-Includes adaptive baseline methods and comprehensive safety checks
+Unified ERD Detection System for BrainVision ActiChamp
+Supports both real hardware and virtual emulation
 
 Joseph Hong
 '''
@@ -22,28 +22,64 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import time
 from datetime import datetime
-from livestream_receiver import LivestreamReceiver
+import os
+import sys
 
 
 #==========================================================================================
-# ADAPTIVE ERD DETECTION CLASS
+# RECEIVER FACTORY
+
+class ReceiverFactory:
+    """Factory to create appropriate receiver based on mode"""
+    
+    @staticmethod
+    def create_receiver(mode='real', **kwargs):
+        """
+        Create receiver instance
+        
+        Args:
+            mode: 'real' for actual hardware, 'virtual' for emulation
+            **kwargs: Additional parameters for receiver initialization
+        """
+        if mode == 'real':
+            try:
+                from receivers.livestream_receiver import LivestreamReceiver
+                return LivestreamReceiver(
+                    address=kwargs.get('address', '169.254.1.147'),
+                    port=kwargs.get('port', 51244),
+                    broadcast=kwargs.get('broadcast', True)
+                )
+            except ImportError:
+                print("Warning: livestream_receiver.py not found, switching to virtual mode")
+                mode = 'virtual'
+        
+        if mode == 'virtual':
+            try:
+                from receivers.virtual_receiver import Emulator
+                return Emulator(fileName=kwargs.get('fileName', 'MIT33'))
+            except ImportError:
+                raise ImportError("Neither livestream_receiver.py nor virtual_receiver.py found!")
+
+
+#==========================================================================================
+# ADAPTIVE ERD DETECTOR (Same as before, no changes needed)
 
 class AdaptiveERDDetector:
     """
     Event-Related Desynchronization (ERD) detector with multiple baseline adaptation methods
-    Includes comprehensive safety checks and edge case handling
+    Works with both real and virtual receivers
     """
     
     def __init__(self, sampling_freq=1000, buffer_size=2000):
         # Sampling parameters
         self.fs = sampling_freq
-        self.buffer_size = buffer_size  # 2 seconds of data
+        self.buffer_size = buffer_size
         
         # Frequency bands for ERD detection
         self.freq_bands = {
-            'mu': (8, 12),      # Mu rhythm (motor imagery)
-            'beta': (13, 30),   # Beta rhythm
-            'alpha': (8, 13),   # General alpha
+            'mu': (8, 12),
+            'beta': (13, 30),
+            'alpha': (8, 13),
             'low_beta': (13, 20),
             'high_beta': (20, 30)
         }
@@ -57,12 +93,12 @@ class AdaptiveERDDetector:
         self.overlap = 0.8
         
         # Baseline adaptation parameters
-        self.adaptation_method = 'hybrid'  # 'static', 'sliding', 'exponential', 'hybrid', 'kalman'
+        self.adaptation_method = 'hybrid'
         self.adaptation_rate = 0.01
         self.sliding_baseline_window = 30.0
         self.rest_detection_threshold = 5.0
-        self.min_valid_power = 1e-9  # Noise floor threshold
-        self.max_valid_erd = 95.0    # Biological limit
+        self.min_valid_power = 1e-9
+        self.max_valid_erd = 95.0
         
         # Buffers and state
         self.channel_buffers = {}
@@ -132,9 +168,7 @@ class AdaptiveERDDetector:
         self.adaptation_rate = adaptation_rate
         
     def calculate_band_power(self, data, band='mu'):
-        """
-        Calculate band power using Welch's method with safety checks
-        """
+        """Calculate band power using Welch's method with safety checks"""
         # Safety check: Ensure data has variance
         if np.var(data) < 1e-10:
             return self.min_valid_power
@@ -143,7 +177,7 @@ class AdaptiveERDDetector:
         data = data - np.mean(data)
         
         # Check for extreme values (possible disconnection)
-        if np.any(np.abs(data) > 500):  # Assuming μV units
+        if np.any(np.abs(data) > 500):
             return self.min_valid_power
         
         try:
@@ -166,9 +200,7 @@ class AdaptiveERDDetector:
             return self.min_valid_power
     
     def detect_rest_periods(self, erd_values):
-        """
-        Sophisticated rest detection based on ERD stability and magnitude
-        """
+        """Sophisticated rest detection based on ERD stability and magnitude"""
         if not erd_values:
             return True
             
@@ -182,7 +214,7 @@ class AdaptiveERDDetector:
         # Add to rest detector buffer
         self.rest_detector_buffer.append(abs(avg_erd))
         
-        if len(self.rest_detector_buffer) >= self.fs:  # At least 1 second of data
+        if len(self.rest_detector_buffer) >= self.fs:
             recent_erds = list(self.rest_detector_buffer)[-self.fs:]
             mean_erd = np.mean(recent_erds)
             std_erd = np.std(recent_erds)
@@ -205,7 +237,6 @@ class AdaptiveERDDetector:
         self.baseline_history[idx].append(current_power)
         
         if len(self.baseline_history[idx]) > 10:
-            # Use median for robustness
             powers = list(self.baseline_history[idx])
             self.baseline_power[idx] = np.median(powers)
     
@@ -214,7 +245,6 @@ class AdaptiveERDDetector:
         if self.baseline_power[idx] is None or self.baseline_power[idx] < self.min_valid_power:
             self.baseline_power[idx] = current_power
         elif self.is_resting and self.rest_confidence > 0.7:
-            # Update rate proportional to rest confidence
             adaptive_rate = self.adaptation_rate * self.rest_confidence
             self.baseline_power[idx] = (
                 (1 - adaptive_rate) * self.baseline_power[idx] + 
@@ -223,18 +253,16 @@ class AdaptiveERDDetector:
     
     def update_baseline_kalman(self, idx, current_power):
         """Kalman filter for optimal baseline tracking"""
-        Q = 0.0001  # Process noise
-        R = 0.01    # Measurement noise
+        Q = 0.0001
+        R = 0.01
         
         if self.kalman_states[idx] is None:
             self.kalman_states[idx] = current_power
             self.baseline_power[idx] = current_power
         else:
-            # Predict
             predicted_state = self.kalman_states[idx]
             predicted_covariance = self.kalman_covariances[idx] + Q
             
-            # Update only during high-confidence rest
             if self.is_resting and self.rest_confidence > 0.8:
                 K = predicted_covariance / (predicted_covariance + R)
                 self.kalman_states[idx] = predicted_state + K * (current_power - predicted_state)
@@ -242,27 +270,20 @@ class AdaptiveERDDetector:
                 self.baseline_power[idx] = self.kalman_states[idx]
     
     def calculate_erd_safe(self, reference, active, channel_idx):
-        """
-        Safe ERD calculation with comprehensive error handling
-        """
-        # Check for invalid reference
+        """Safe ERD calculation with comprehensive error handling"""
         if reference is None or reference <= self.min_valid_power:
             self.channel_status[channel_idx] = "INVALID_BASELINE"
             return self._get_fallback_erd(channel_idx)
         
-        # Check for negative values
         if reference < 0 or active < 0:
             self.channel_status[channel_idx] = "NEGATIVE_POWER"
             return self._get_fallback_erd(channel_idx)
         
-        # Calculate ERD
         erd = ((reference - active) / reference) * 100
         
-        # Biological limits check
         if erd > 100:
-            erd = 100.0  # Power can't be negative
+            erd = 100.0
         elif erd < -200:
-            # Large synchronization - possible artifact
             self.channel_status[channel_idx] = "ARTIFACT_WARNING"
         else:
             self.channel_status[channel_idx] = "OK"
@@ -275,7 +296,6 @@ class AdaptiveERDDetector:
         """Fallback strategy for invalid ERD calculations"""
         self.error_count[channel_idx] += 1
         
-        # Use last valid value if available and recent
         if channel_idx in self.last_valid_erd and self.error_count[channel_idx] < 5:
             return self.last_valid_erd[channel_idx]
         
@@ -291,7 +311,6 @@ class AdaptiveERDDetector:
             baseline_data = list(self.channel_buffers[idx])[-int(self.baseline_duration * self.fs):]
             baseline_power = self.calculate_band_power(baseline_data, self.selected_band)
             
-            # Initialize all baseline trackers
             self.baseline_power[idx] = baseline_power
             self.baseline_history[idx].clear()
             self.baseline_history[idx].extend([baseline_power] * 10)
@@ -304,9 +323,7 @@ class AdaptiveERDDetector:
         return True
     
     def detect_erd(self, new_data):
-        """
-        Main ERD detection with adaptive baseline and safety checks
-        """
+        """Main ERD detection with adaptive baseline and safety checks"""
         if new_data.shape[0] < max(self.selected_indices) + 1:
             return False, {}
         
@@ -390,18 +407,26 @@ class AdaptiveERDDetector:
 
 
 #==========================================================================================
+<<<<<<< Updated upstream
 # GUI CLASS
+=======
+# UNIFIED GUI CLASS
+>>>>>>> Stashed changes
 
-class ERDDetectionGUI:
+class UnifiedERDGUI:
     """
-    Comprehensive GUI for ERD Detection System with adaptive baseline controls
+    GUI for ERD Detection System supporting both real and virtual receivers
     """
     
-    def __init__(self, erd_detector, livestream_receiver):
-        self.detector = erd_detector
-        self.receiver = livestream_receiver
+    def __init__(self, mode='real', **kwargs):
+        self.mode = mode
+        self.receiver_kwargs = kwargs
+        self.receiver = None
+        self.detector = None
+        
+        # GUI setup
         self.root = tk.Tk()
-        self.root.title("Advanced ERD Detection System - BrainVision ActiChamp")
+        self.root.title(f"ERD Detection System - {mode.capitalize()} Mode")
         self.root.geometry("1400x900")
         
         # Threading
@@ -416,6 +441,10 @@ class ERDDetectionGUI:
         # Performance metrics
         self.detection_count = 0
         self.session_start_time = None
+        
+        # Virtual mode specific
+        self.total_samples = 0
+        self.current_sample = 0
         
         self._setup_gui()
         
@@ -436,10 +465,10 @@ class ERDDetectionGUI:
         notebook.add(advanced_tab, text="Advanced Settings")
         self._setup_advanced_tab(advanced_tab)
         
-        # Tab 3: Diagnostics
-        diagnostics_tab = ttk.Frame(notebook)
-        notebook.add(diagnostics_tab, text="Diagnostics")
-        self._setup_diagnostics_tab(diagnostics_tab)
+        # Tab 3: Mode Settings
+        mode_tab = ttk.Frame(notebook)
+        notebook.add(mode_tab, text="Mode Settings")
+        self._setup_mode_tab(mode_tab)
         
     def _setup_main_tab(self, parent):
         """Setup main control tab"""
@@ -447,16 +476,28 @@ class ERDDetectionGUI:
         conn_frame = ttk.LabelFrame(parent, text="Connection", padding="10")
         conn_frame.grid(row=0, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5, padx=5)
         
-        ttk.Label(conn_frame, text="Status:").grid(row=0, column=0, sticky=tk.W)
+        # Mode indicator
+        mode_label = ttk.Label(conn_frame, text=f"Mode: {self.mode.upper()}", 
+                              font=("Arial", 10, "bold"))
+        mode_label.grid(row=0, column=0, sticky=tk.W)
+        
+        ttk.Label(conn_frame, text="Status:").grid(row=0, column=1, sticky=tk.W, padx=(20, 0))
         self.status_label = ttk.Label(conn_frame, text="Disconnected", foreground="red")
-        self.status_label.grid(row=0, column=1, sticky=tk.W, padx=10)
+        self.status_label.grid(row=0, column=2, sticky=tk.W, padx=10)
         
         self.connect_btn = ttk.Button(conn_frame, text="Connect", command=self.connect)
-        self.connect_btn.grid(row=0, column=2, padx=5)
+        self.connect_btn.grid(row=0, column=3, padx=5)
         
         self.disconnect_btn = ttk.Button(conn_frame, text="Disconnect", 
                                        command=self.disconnect, state=tk.DISABLED)
-        self.disconnect_btn.grid(row=0, column=3, padx=5)
+        self.disconnect_btn.grid(row=0, column=4, padx=5)
+        
+        # Progress bar for virtual mode
+        if self.mode == 'virtual':
+            self.progress_var = tk.DoubleVar()
+            self.progress_bar = ttk.Progressbar(conn_frame, variable=self.progress_var,
+                                              length=200, mode='determinate')
+            self.progress_bar.grid(row=1, column=0, columnspan=5, pady=5, sticky=(tk.W, tk.E))
         
         # Parameters Frame
         param_frame = ttk.LabelFrame(parent, text="ERD Parameters", padding="10")
@@ -471,7 +512,7 @@ class ERDDetectionGUI:
         ttk.Label(param_frame, text="Frequency Band:").grid(row=1, column=0, sticky=tk.W)
         self.band_var = tk.StringVar(value="mu")
         band_menu = ttk.Combobox(param_frame, textvariable=self.band_var, 
-                                values=list(self.detector.freq_bands.keys()), width=15)
+                                values=['mu', 'beta', 'alpha', 'low_beta', 'high_beta'], width=15)
         band_menu.grid(row=1, column=1, padx=5)
         band_menu.bind('<<ComboboxSelected>>', self.update_parameters)
         
@@ -524,6 +565,12 @@ class ERDDetectionGUI:
         self.detection_count_label = ttk.Label(indicator_frame, text="Detections: 0")
         self.detection_count_label.pack()
         
+        # Classification display for virtual mode
+        if self.mode == 'virtual':
+            self.classification_label = ttk.Label(indicator_frame, text="Output: ---", 
+                                                font=("Courier", 10))
+            self.classification_label.pack(pady=5)
+        
         # Plot frame
         plot_frame = ttk.LabelFrame(parent, text="ERD Trend", padding="10")
         plot_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5, padx=5)
@@ -572,40 +619,68 @@ class ERDDetectionGUI:
         self.rest_label.grid(row=2, column=2)
         rest_scale.configure(command=lambda x: self.update_rest_threshold())
         
-        # System info
-        info_frame = ttk.LabelFrame(parent, text="System Information", padding="10")
-        info_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=5, padx=5)
+    def _setup_mode_tab(self, parent):
+        """Setup mode-specific settings tab"""
         
-        self.info_text = tk.Text(info_frame, width=60, height=15, font=("Courier", 9))
-        self.info_text.pack()
-        
-    def _setup_diagnostics_tab(self, parent):
-        """Setup diagnostics tab"""
-        # Channel status
-        status_frame = ttk.LabelFrame(parent, text="Channel Status", padding="10")
-        status_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5, padx=5)
-        
-        self.channel_status_text = tk.Text(status_frame, width=50, height=10, font=("Courier", 9))
-        self.channel_status_text.pack()
-        
-        # Baseline monitoring
-        baseline_frame = ttk.LabelFrame(parent, text="Baseline Monitor", padding="10")
-        baseline_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5, padx=5)
-        
-        self.baseline_fig = Figure(figsize=(6, 4), dpi=80)
-        self.baseline_ax = self.baseline_fig.add_subplot(111)
-        self.baseline_ax.set_xlabel('Time (s)')
-        self.baseline_ax.set_ylabel('Baseline Power (μV²)')
-        self.baseline_ax.grid(True, alpha=0.3)
-        
-        self.baseline_canvas = FigureCanvasTkAgg(self.baseline_fig, master=baseline_frame)
-        self.baseline_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        
+        if self.mode == 'real':
+            # Real mode settings
+            real_frame = ttk.LabelFrame(parent, text="BrainVision Settings", padding="10")
+            real_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=5, padx=5)
+            
+            ttk.Label(real_frame, text="IP Address:").grid(row=0, column=0, sticky=tk.W)
+            self.ip_var = tk.StringVar(value=self.receiver_kwargs.get('address', '169.254.1.147'))
+            ip_entry = ttk.Entry(real_frame, textvariable=self.ip_var, width=20)
+            ip_entry.grid(row=0, column=1, padx=5)
+            
+            ttk.Label(real_frame, text="Port:").grid(row=1, column=0, sticky=tk.W)
+            self.port_var = tk.IntVar(value=self.receiver_kwargs.get('port', 51244))
+            port_entry = ttk.Entry(real_frame, textvariable=self.port_var, width=20)
+            port_entry.grid(row=1, column=1, padx=5)
+            
+        else:
+            # Virtual mode settings
+            virtual_frame = ttk.LabelFrame(parent, text="Emulator Settings", padding="10")
+            virtual_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=5, padx=5)
+            
+            ttk.Label(virtual_frame, text="Data File:").grid(row=0, column=0, sticky=tk.W)
+            self.file_var = tk.StringVar(value=self.receiver_kwargs.get('fileName', 'MIT33'))
+            file_entry = ttk.Entry(virtual_frame, textvariable=self.file_var, width=30)
+            file_entry.grid(row=0, column=1, padx=5)
+            
+            ttk.Label(virtual_frame, text="Playback Speed:").grid(row=1, column=0, sticky=tk.W)
+            self.speed_var = tk.DoubleVar(value=1.0)
+            speed_scale = ttk.Scale(virtual_frame, from_=0.5, to=5.0, 
+                                  orient=tk.HORIZONTAL, variable=self.speed_var,
+                                  length=200)
+            speed_scale.grid(row=1, column=1, padx=5)
+            self.speed_label = ttk.Label(virtual_frame, text="1.0x")
+            self.speed_label.grid(row=1, column=2)
+            speed_scale.configure(command=lambda x: self.update_speed())
+            
+            # Loop option
+            self.loop_var = tk.BooleanVar(value=True)
+            loop_check = ttk.Checkbutton(virtual_frame, text="Loop playback", 
+                                       variable=self.loop_var)
+            loop_check.grid(row=2, column=0, columnspan=2, pady=5)
+    
     def connect(self):
-        """Connect to BrainVision livestream"""
+        """Connect to receiver (real or virtual)"""
         try:
+            # Update receiver kwargs if in real mode
+            if self.mode == 'real':
+                self.receiver_kwargs['address'] = self.ip_var.get()
+                self.receiver_kwargs['port'] = self.port_var.get()
+            else:
+                self.receiver_kwargs['fileName'] = self.file_var.get()
+            
+            # Create receiver
+            self.receiver = ReceiverFactory.create_receiver(self.mode, **self.receiver_kwargs)
+            
             # Initialize connection
             fs, ch_names, n_channels, _ = self.receiver.initialize_connection()
+            
+            # Create detector
+            self.detector = AdaptiveERDDetector(sampling_freq=fs, buffer_size=int(2*fs))
             
             # Update detector
             self.detector.fs = fs
@@ -647,6 +722,10 @@ class ERDDetectionGUI:
             self.session_start_time = time.time()
             self.detection_count = 0
             
+            # Get total samples for virtual mode
+            if self.mode == 'virtual' and hasattr(self.receiver, 'raw_data'):
+                self.total_samples = self.receiver.raw_data._data.shape[1]
+            
             # Start data thread
             self.running = True
             self.data_thread = threading.Thread(target=self.data_acquisition_loop)
@@ -660,17 +739,22 @@ class ERDDetectionGUI:
             messagebox.showerror("Connection Error", str(e))
     
     def disconnect(self):
-        """Disconnect from livestream"""
+        """Disconnect from receiver"""
         self.running = False
         if hasattr(self, 'data_thread'):
             self.data_thread.join(timeout=1)
         
-        self.receiver.disconnect()
+        if self.receiver:
+            self.receiver.disconnect()
         
         self.status_label.config(text="Disconnected", foreground="red")
         self.connect_btn.config(state=tk.NORMAL)
         self.disconnect_btn.config(state=tk.DISABLED)
         self.baseline_btn.config(state=tk.DISABLED)
+        
+        # Reset progress bar for virtual mode
+        if self.mode == 'virtual':
+            self.progress_var.set(0)
     
     def data_acquisition_loop(self):
         """Background thread for data acquisition"""
@@ -679,7 +763,24 @@ class ERDDetectionGUI:
                 # Get data
                 data = self.receiver.get_data()
                 
-                if data is not None:
+                # Handle end of file for virtual mode
+                if self.mode == 'virtual' and (data is None or data.shape[1] == 0):
+                    if self.loop_var.get():
+                        # Reset to beginning
+                        self.receiver.current_index = 0
+                        continue
+                    else:
+                        # Stop
+                        self.running = False
+                        break
+                
+                if data is not None and data.shape[1] > 0:
+                    # Update progress for virtual mode
+                    if self.mode == 'virtual':
+                        self.current_sample = self.receiver.current_index
+                        progress = (self.current_sample / self.total_samples) * 100
+                        self.progress_var.set(progress)
+                    
                     # Get selected channels
                     selected_indices = [i for i, var in enumerate(self.channel_vars) 
                                       if var.get()]
@@ -708,9 +809,17 @@ class ERDDetectionGUI:
                             self.receiver.use_classification(1)
                             self.detection_count += 1
                 
+                # Sleep adjustment for virtual mode speed
+                if self.mode == 'virtual' and hasattr(self, 'speed_var'):
+                    time.sleep(0.02 / self.speed_var.get())  # Adjust delay based on speed
+                    
             except Exception as e:
                 if self.running:
                     print(f"Data acquisition error: {e}")
+                    
+        # Update GUI when stopped
+        if self.mode == 'virtual':
+            self.root.after(0, lambda: self.status_label.config(text="Playback Complete", foreground="orange"))
     
     def update_gui(self):
         """Update GUI with latest data"""
@@ -727,8 +836,12 @@ class ERDDetectionGUI:
                 # Update plots
                 self.update_plots(data['erd_values'], data['status'], data['timestamp'])
                 
-                # Update diagnostics
-                self.update_diagnostics(data['status'])
+                # Update classification label for virtual mode
+                if self.mode == 'virtual' and hasattr(self, 'classification_label'):
+                    if data['detected']:
+                        self.classification_label.config(text="Output: FLEX")
+                    else:
+                        self.classification_label.config(text="Output: REST")
                 
         except queue.Empty:
             pass
@@ -823,40 +936,16 @@ class ERDDetectionGUI:
             
             self.canvas.draw()
     
-    def update_diagnostics(self, status):
-        """Update diagnostic displays"""
-        # Channel status
-        self.channel_status_text.delete(1.0, tk.END)
-        self.channel_status_text.insert(tk.END, "Channel Status Monitor\n")
-        self.channel_status_text.insert(tk.END, "=" * 40 + "\n\n")
-        
-        for ch, st in status['channel_status'].items():
-            baseline = status['baseline_values'].get(ch, 0)
-            self.channel_status_text.insert(tk.END, 
-                f"{ch:6s}: {st:15s} (Baseline: {baseline:.2f})\n")
-        
-        # System info update
-        self.info_text.delete(1.0, tk.END)
-        info_lines = [
-            f"Baseline Method: {status['baseline_method']}",
-            f"Rest Detection: {'Yes' if status['is_resting'] else 'No'}",
-            f"Rest Confidence: {status['rest_confidence']*100:.1f}%",
-            f"",
-            f"Session Duration: {time.time() - self.session_start_time:.1f}s",
-            f"Total Detections: {self.detection_count}",
-            f"Detection Rate: {self.detection_count / max(1, time.time() - self.session_start_time) * 60:.1f}/min"
-        ]
-        self.info_text.insert(tk.END, "\n".join(info_lines))
-    
     def update_parameters(self, event=None):
         """Update detector parameters"""
-        self.detector.update_parameters(
-            band=self.band_var.get(),
-            threshold=self.threshold_var.get(),
-            baseline_duration=self.baseline_var.get(),
-            adaptation_method=self.adapt_method_var.get(),
-            adaptation_rate=self.alpha_var.get()
-        )
+        if self.detector:
+            self.detector.update_parameters(
+                band=self.band_var.get(),
+                threshold=self.threshold_var.get(),
+                baseline_duration=self.baseline_var.get(),
+                adaptation_method=self.adapt_method_var.get(),
+                adaptation_rate=self.alpha_var.get()
+            )
     
     def update_threshold(self):
         """Update threshold display"""
@@ -865,27 +954,35 @@ class ERDDetectionGUI:
     
     def update_adaptation(self, event=None):
         """Update adaptation method"""
-        self.detector.adaptation_method = self.adapt_method_var.get()
+        if self.detector:
+            self.detector.adaptation_method = self.adapt_method_var.get()
     
     def update_alpha(self):
         """Update adaptation rate"""
-        self.detector.adaptation_rate = self.alpha_var.get()
+        if self.detector:
+            self.detector.adaptation_rate = self.alpha_var.get()
         self.alpha_label.config(text=f"{self.alpha_var.get()*100:.1f}%")
     
     def update_rest_threshold(self):
         """Update rest detection threshold"""
-        self.detector.rest_detection_threshold = self.rest_thresh_var.get()
+        if self.detector:
+            self.detector.rest_detection_threshold = self.rest_thresh_var.get()
         self.rest_label.config(text=f"{self.rest_thresh_var.get():.1f}%")
+    
+    def update_speed(self):
+        """Update playback speed for virtual mode"""
+        self.speed_label.config(text=f"{self.speed_var.get():.1f}x")
     
     def update_selected_channels(self):
         """Update selected channels in detector"""
-        selected_indices = [i for i, var in enumerate(self.channel_vars) if var.get()]
-        if selected_indices:
-            self.detector.set_channels(self.receiver.channel_names, selected_indices)
+        if self.detector:
+            selected_indices = [i for i, var in enumerate(self.channel_vars) if var.get()]
+            if selected_indices:
+                self.detector.set_channels(self.receiver.channel_names, selected_indices)
     
     def set_baseline(self):
         """Manually set baseline"""
-        if self.detector.set_baseline():
+        if self.detector and self.detector.set_baseline():
             messagebox.showinfo("Baseline Set", "Baseline successfully reset")
             # Clear history
             for ch in self.erd_history:
@@ -916,44 +1013,51 @@ class ERDDetectionGUI:
 # MAIN EXECUTION
 
 def main():
-    """Main entry point for ERD Detection System"""
+    """Main entry point with mode selection"""
+    import argparse
     
-    # Configuration
-    config = {
-        'address': "169.254.1.147",  # BrainVision default
-        'port': 51244,
-        'broadcast': True,
-        'sampling_freq': 1000,
-        'buffer_size': 2000
-    }
+    parser = argparse.ArgumentParser(description='ERD Detection System')
+    parser.add_argument('--mode', choices=['real', 'virtual'], default='real',
+                      help='Operation mode: real hardware or virtual emulation')
+    parser.add_argument('--address', default='169.254.1.147', 
+                      help='BrainVision IP address (real mode)')
+    parser.add_argument('--port', type=int, default=51244,
+                      help='Port number (real mode)')
+    parser.add_argument('--file', default='MIT33',
+                      help='Data file name (virtual mode)')
+    parser.add_argument('--broadcast', action='store_true', default=True,
+                      help='Enable TCP broadcasting (real mode)')
+    
+    args = parser.parse_args()
     
     print("=" * 60)
-    print("Advanced ERD Detection System for BrainVision ActiChamp")
-    print("=" * 60)
-    print(f"Configuration:")
-    print(f"  Address: {config['address']}:{config['port']}")
-    print(f"  Broadcasting: {'Enabled' if config['broadcast'] else 'Disabled'}")
-    print(f"  Sampling Rate: {config['sampling_freq']} Hz")
+    print(f"ERD Detection System - {args.mode.upper()} Mode")
     print("=" * 60)
     
-    # Create components
-    receiver = LivestreamReceiver(
-        address=config['address'],
-        port=config['port'],
-        broadcast=config['broadcast']
-    )
+    # Prepare kwargs based on mode
+    if args.mode == 'real':
+        kwargs = {
+            'address': args.address,
+            'port': args.port,
+            'broadcast': args.broadcast
+        }
+        print(f"Real Mode Configuration:")
+        print(f"  Address: {args.address}:{args.port}")
+        print(f"  Broadcasting: {'Enabled' if args.broadcast else 'Disabled'}")
+    else:
+        kwargs = {
+            'fileName': args.file
+        }
+        print(f"Virtual Mode Configuration:")
+        print(f"  Data File: {args.file}")
+        print(f"  Note: Using emulated EEG data")
     
-    detector = AdaptiveERDDetector(
-        sampling_freq=config['sampling_freq'],
-        buffer_size=config['buffer_size']
-    )
+    print("=" * 60)
     
     # Create and run GUI
-    gui = ERDDetectionGUI(detector, receiver)
+    gui = UnifiedERDGUI(mode=args.mode, **kwargs)
     
     print("Starting GUI...")
-    print("Ready for connection.")
-    
     gui.run()
     
     print("\nSystem shutdown complete.")
