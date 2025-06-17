@@ -407,11 +407,7 @@ class AdaptiveERDDetector:
 
 
 #==========================================================================================
-<<<<<<< Updated upstream
-# GUI CLASS
-=======
 # UNIFIED GUI CLASS
->>>>>>> Stashed changes
 
 class UnifiedERDGUI:
     """
