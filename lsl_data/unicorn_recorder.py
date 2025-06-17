@@ -524,15 +524,17 @@ class EEGMarkerGUI:
 
         # Start Unicorn data acquisition
         try:
-            self.start_timestamp = local_clock()
-            self.recording_start_time = time.time()
-            self.log(f"Recording started. LSL Start Time: {self.start_timestamp:.4f}")
+            
             
             # Start acquisition on device
             self.log("Starting Unicorn data acquisition...")
             self.unicorn_device.StartAcquisition(False)  # False for non-test signal
             self._acquisition_running = True
             self.log("Unicorn acquisition started successfully")
+
+            self.start_timestamp = local_clock()
+            self.recording_start_time = time.time()
+            self.log(f"Recording started. LSL Start Time: {self.start_timestamp:.4f}")
             
             self._send_marker("session_start")
 

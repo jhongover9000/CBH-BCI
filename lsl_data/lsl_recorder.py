@@ -286,11 +286,12 @@ class EEGMarkerGUI:
 
 
             ch_list = info.desc().child("channels").first_child()
+            print(info.desc().child("channels").first_child())
             channel_names = []
             while ch_list.name() == "channel":
                 channel_names.append(ch_list.child_value("label"))
                 ch_list = ch_list.next_sibling()
-
+            print(ch_list)
             # Exclude non-EEG channels more robustly if needed (e.g., AUX, ECG)
             self.eeg_channels = [ch for ch in channel_names if ch.upper().startswith('EEG') or ch.upper() in ['CZ', 'C3', 'C4', 'PZ', 'P3', 'P4', 'O1', 'O2', 'FZ', 'F3', 'F4', 'T7', 'T8']] # Add common EEG names if prefix fails
             # Fallback if no 'EEG' prefix found
