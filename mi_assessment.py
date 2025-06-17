@@ -107,7 +107,7 @@ class EEGMarkerGUI:
         # Questions and Instructions
         self.imagery_question = "Did you imagine the motor movement?"
         self.rest_question = "Were you able to maintain a resting state?"
-        self.instructions = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Baseline\n\u2022 : Motor Imagery\n Blank Screen : Resting State\n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
+        self.instructions = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Blank Screen :  Rest\n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
         self.show_instructions = True
 
         # Sound
@@ -1380,9 +1380,9 @@ class EEGMarkerGUI:
         is_pre_assessment = not self.is_post_assessment.get()
         
         if is_pre_assessment:
-            self.instruction = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Baseline\n\u2022 : Motor Imagery\n Blank Screen : Resting State\n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
+            self.instruction = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Blank Screen : Rest \n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
         else:
-            self.instruction = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Baseline\n\u2022 : Motor Imagery\n Blank Screen : Resting State\n\nPlease let the experimenter know when you are ready to begin."
+            self.instruction = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Blank Screen : Rest\n\nPlease let the experimenter know when you are ready to begin."
         
         # Update the stimulus if it exists
         if hasattr(self, 'instruction_stim'):

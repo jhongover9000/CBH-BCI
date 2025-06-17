@@ -150,6 +150,7 @@ class LivestreamReceiver:
                     print("Marker " + markers[m].description + " of type " + markers[m].type)
                     print("===================================")
                     print("")
+                    # self.server.send_message_tcp("MARKER")
 
             # Get voltage unit 
             data = np.array(data)
