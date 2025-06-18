@@ -4,8 +4,9 @@
 epoched/STvsRest.mat
 /models/__pycache__
 .DS_Store
-*.pkl
 /*__pycache__/*
 *cpython-39.pyc
 /classification/__pycache__
 /data/epoched_no_asr
+results/20250422190952_consolidated_results.pkl
+results/20250504212508_consolidated_results.pkl
