@@ -105,6 +105,14 @@ seconds_ctr = 0
 com_port_num = 0
 process_ip = "0.0.0.0"
 
+import pickle
+
+scaler = None
+scaler_path = "./saved_weights/global_scaler.pkl"
+if os.path.exists(scaler_path):
+    with open(scaler_path, 'rb') as f:
+        scaler = pickle.load(f)
+                
 
 # =============================================================
 # =============================================================
@@ -263,6 +271,13 @@ if __name__ == "__main__":
 
                     # Perform Classification
                     logTime("Classification Started:")
+                    
+                    original_shape = data_block.shape
+                    # Flatten for scaling
+                    data_flat = data_block.reshape(original_shape[0], -1)
+                    data_scaled = scaler.transform(data_flat)
+                    data_block = data_scaled.reshape(original_shape)
+
                     probability = model.predict(data_block)
                     prediction = probability.argmax(axis=-1)
                     

@@ -11,7 +11,7 @@ from scipy import signal
 data_dir = "./data/rawdata/mit/"
 
 class Emulator:
-    def __init__(self, fileName="MIT33", auto_scale=True, verbose=True):
+    def __init__(self, fileName="MIT33", auto_scale=False, verbose=False):
         self.vhdr_file = f"{data_dir}{fileName}.vhdr"
         self.eeg_file = f"{data_dir}{fileName}.eeg"
         self.channel_count = 0
@@ -38,6 +38,7 @@ class Emulator:
             
         # Load raw data
         self.raw_data = mne.io.read_raw_brainvision(self.vhdr_file, preload=True)
+        self.raw_data = self.raw_data.resample(250)
         self.sampling_frequency = int(self.raw_data.info["sfreq"])
         self.sampling_interval_us = (1 / self.sampling_frequency) * 1e6
         self.chunk_size = int(self.sampling_frequency / 50)  # 20ms chunks
@@ -57,7 +58,8 @@ class Emulator:
             start_time = annotations.onset[mask][0]  # First occurrence
             
             # Crop from this time point
-            self.raw_data = self.raw_data.crop(tmin=start_time)
+            self.raw_data = self.raw_data.crop(tmin=start_time-2000)
+            
         
         # Create info
         self.info = mne.create_info(
@@ -132,8 +134,8 @@ class Emulator:
                 print(f"  After scaling: std = {new_std:.2f} µV")
                 
         elif data_std < 0.1:  # Data might be in volts
-            self.scaling_factor = 1e6  # Convert to microvolts
-            self.raw_data._data *= self.scaling_factor
+            # self.scaling_factor = 1e6  # Convert to microvolts
+            # self.raw_data._data *= self.scaling_factor
             if self.verbose:
                 print(f"  Data appears to be in volts, converting to microvolts")
                 

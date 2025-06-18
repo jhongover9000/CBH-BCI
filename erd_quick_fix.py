@@ -202,8 +202,9 @@ def patch_virtual_receiver(emulator):
                 
             elif data_std < 0.1:
                 # Likely in volts
-                data = data * 1e6
-                print("Converted from volts to microvolts")
+                data = data * 1e4
+                pass
+                # print("Converted from volts to microvolts")
             
             # Remove DC offset
             for i in range(data.shape[0]):

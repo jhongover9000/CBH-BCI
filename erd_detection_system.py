@@ -62,12 +62,12 @@ class ReceiverFactory:
 
 
 #==========================================================================================
-# ADAPTIVE ERD DETECTOR (Same as before, no changes needed)
+# ADAPTIVE ERD DETECTOR
 
 class AdaptiveERDDetector:
     """
-    Event-Related Desynchronization (ERD) detector with multiple baseline adaptation methods
-    Works with both real and virtual receivers
+    Event-Related Desynchronization (ERD) detector with a robust hybrid baseline adaptation method.
+    Works with both real and virtual receivers.
     """
     
     def __init__(self, sampling_freq=1000, buffer_size=2000):
@@ -85,15 +85,15 @@ class AdaptiveERDDetector:
         }
         
         # Default parameters
-        self.selected_channels = ['C3', 'C4', 'Cz']
+        self.selected_channels = ['C3']
         self.selected_band = 'mu'
-        self.erd_threshold = 20.0
+        self.erd_threshold = 80.0
         self.baseline_duration = 2.0
         self.window_size = 0.5
         self.overlap = 0.8
         
         # Baseline adaptation parameters
-        self.adaptation_method = 'hybrid'
+        self.adaptation_method = 'hybrid' # Hybrid is now the default and only active method
         self.adaptation_rate = 0.01
         self.sliding_baseline_window = 30.0
         self.rest_detection_threshold = 5.0
@@ -117,16 +117,31 @@ class AdaptiveERDDetector:
         self.last_valid_erd = {}
         self.channel_status = {}
         
-        # Kalman filter states
+        # Kalman filter states (kept for potential future use)
         self.kalman_states = {}
         self.kalman_covariances = {}
         
         # Detection state
         self.erd_detected = False
         self.erd_values = {}
+
+        # Baseline power
+        self.unified_baseline_power = 0.0
         
         # Initialize filters
         self._init_filters()
+
+    def reset_baseline_collection(self):
+        """
+        Resets the baseline state, forcing a new collection.
+        """
+        print("\n*** Baseline reset triggered. Recalibrating... ***")
+        self.is_baseline_set = False
+        self.baseline_power = {} # Clear old baseline values
+        for idx in self.selected_indices:
+            # Also clear the history to start fresh
+            if idx in self.baseline_history:
+                self.baseline_history[idx].clear()
         
     def _init_filters(self):
         """Initialize bandpass filters for each frequency band"""
@@ -153,8 +168,6 @@ class AdaptiveERDDetector:
             self.error_count[idx] = 0
             self.last_valid_erd[idx] = 0.0
             self.channel_status[idx] = "INITIALIZING"
-            
-            # Kalman filter initialization
             self.kalman_states[idx] = None
             self.kalman_covariances[idx] = 1.0
             
@@ -169,49 +182,29 @@ class AdaptiveERDDetector:
         
     def calculate_band_power(self, data, band='mu'):
         """Calculate band power using Welch's method with safety checks"""
-        # Safety check: Ensure data has variance
-        if np.var(data) < 1e-10:
-            return self.min_valid_power
-        
-        # Remove DC offset
+        if np.var(data) < 1e-10: return self.min_valid_power
         data = data - np.mean(data)
-        
-        # Check for extreme values (possible disconnection)
-        if np.any(np.abs(data) > 500):
-            return self.min_valid_power
+        if np.any(np.abs(data) > 500): return self.min_valid_power
         
         try:
             b, a = self.filters[band]
             filtered = filtfilt(b, a, data)
-            
             nperseg = min(len(data), int(self.fs * 0.5))
             freqs, psd = signal.welch(filtered, self.fs, nperseg=nperseg)
-            
             low, high = self.freq_bands[band]
             band_mask = (freqs >= low) & (freqs <= high)
-            
             band_power = np.mean(psd[band_mask])
-            
-            # Ensure power is above noise floor
             return max(band_power, self.min_valid_power)
-            
         except Exception as e:
             print(f"Error calculating band power: {e}")
             return self.min_valid_power
     
     def detect_rest_periods(self, erd_values):
         """Sophisticated rest detection based on ERD stability and magnitude"""
-        if not erd_values:
-            return True
-            
-        # Calculate average ERD across channels
+        if not erd_values: return True
         valid_erds = [v for v in erd_values.values() if not np.isnan(v)]
-        if not valid_erds:
-            return True
-            
+        if not valid_erds: return True
         avg_erd = np.mean(valid_erds)
-        
-        # Add to rest detector buffer
         self.rest_detector_buffer.append(abs(avg_erd))
         
         if len(self.rest_detector_buffer) >= self.fs:
@@ -219,15 +212,12 @@ class AdaptiveERDDetector:
             mean_erd = np.mean(recent_erds)
             std_erd = np.std(recent_erds)
             
-            # Rest detection criteria
             is_low_erd = mean_erd < self.rest_detection_threshold
             is_stable = std_erd < 3.0
             
-            # Calculate rest confidence (0-1)
             erd_score = max(0, 1 - mean_erd / self.rest_detection_threshold)
             stability_score = max(0, 1 - std_erd / 3.0)
             self.rest_confidence = (erd_score + stability_score) / 2
-            
             self.is_resting = is_low_erd and is_stable
         
         return self.is_resting
@@ -235,10 +225,8 @@ class AdaptiveERDDetector:
     def update_baseline_sliding(self, idx, current_power):
         """Sliding window baseline with outlier rejection"""
         self.baseline_history[idx].append(current_power)
-        
         if len(self.baseline_history[idx]) > 10:
-            powers = list(self.baseline_history[idx])
-            self.baseline_power[idx] = np.median(powers)
+            self.baseline_power[idx] = np.median(list(self.baseline_history[idx]))
     
     def update_baseline_exponential(self, idx, current_power):
         """Exponential moving average with rest-gated updates"""
@@ -246,28 +234,8 @@ class AdaptiveERDDetector:
             self.baseline_power[idx] = current_power
         elif self.is_resting and self.rest_confidence > 0.7:
             adaptive_rate = self.adaptation_rate * self.rest_confidence
-            self.baseline_power[idx] = (
-                (1 - adaptive_rate) * self.baseline_power[idx] + 
-                adaptive_rate * current_power
-            )
-    
-    def update_baseline_kalman(self, idx, current_power):
-        """Kalman filter for optimal baseline tracking"""
-        Q = 0.0001
-        R = 0.01
-        
-        if self.kalman_states[idx] is None:
-            self.kalman_states[idx] = current_power
-            self.baseline_power[idx] = current_power
-        else:
-            predicted_state = self.kalman_states[idx]
-            predicted_covariance = self.kalman_covariances[idx] + Q
-            
-            if self.is_resting and self.rest_confidence > 0.8:
-                K = predicted_covariance / (predicted_covariance + R)
-                self.kalman_states[idx] = predicted_state + K * (current_power - predicted_state)
-                self.kalman_covariances[idx] = (1 - K) * predicted_covariance
-                self.baseline_power[idx] = self.kalman_states[idx]
+            self.baseline_power[idx] = ((1 - adaptive_rate) * self.baseline_power[idx] + 
+                                       adaptive_rate * current_power)
     
     def calculate_erd_safe(self, reference, active, channel_idx):
         """Safe ERD calculation with comprehensive error handling"""
@@ -281,10 +249,8 @@ class AdaptiveERDDetector:
         
         erd = ((reference - active) / reference) * 100
         
-        if erd > 100:
-            erd = 100.0
-        elif erd < -200:
-            self.channel_status[channel_idx] = "ARTIFACT_WARNING"
+        if erd > 100: erd = 100.0
+        elif erd < -200: self.channel_status[channel_idx] = "ARTIFACT_WARNING"
         else:
             self.channel_status[channel_idx] = "OK"
             self.error_count[channel_idx] = 0
@@ -293,13 +259,9 @@ class AdaptiveERDDetector:
         return erd
     
     def _get_fallback_erd(self, channel_idx):
-        """Fallback strategy for invalid ERD calculations"""
+        """Fallback strategy for invalid ERD calculations."""
         self.error_count[channel_idx] += 1
-        
-        if channel_idx in self.last_valid_erd and self.error_count[channel_idx] < 5:
-            return self.last_valid_erd[channel_idx]
-        
-        return np.nan
+        return 0.0
     
     def set_baseline(self):
         """Manually set baseline from current buffer data"""
@@ -314,7 +276,7 @@ class AdaptiveERDDetector:
             self.baseline_power[idx] = baseline_power
             self.baseline_history[idx].clear()
             self.baseline_history[idx].extend([baseline_power] * 10)
-            self.kalman_states[idx] = baseline_power
+            self.kalman_states[idx] = baseline_power # Also reset kalman state
             self.kalman_covariances[idx] = 1.0
             self.error_count[idx] = 0
             self.channel_status[idx] = "OK"
@@ -323,91 +285,82 @@ class AdaptiveERDDetector:
         return True
     
     def detect_erd(self, new_data):
-        """Main ERD detection with adaptive baseline and safety checks"""
+        """
+        Main ERD detection with MULTI-CHANNEL AVERAGING for improved SNR.
+        """
         if new_data.shape[0] < max(self.selected_indices) + 1:
             return False, {}
         
-        # Update buffers
         for idx in self.selected_indices:
             self.channel_buffers[idx].extend(new_data[idx, :])
         
-        # Check data sufficiency
         if not all(len(self.channel_buffers[idx]) >= self.window_size * self.fs 
                   for idx in self.selected_indices):
             return False, {}
         
-        # Set initial baseline if needed
         if not self.is_baseline_set:
+            # This logic now handles both initial and manual recalibration
             if len(list(self.channel_buffers.values())[0]) >= self.baseline_duration * self.fs:
                 self.set_baseline()
             else:
-                return False, {}
+                # Still collecting data for the new baseline
+                return False, {'ERD_Avg': 0.0, 'status': 'CALIBRATING'}
         
-        # Calculate current ERD
-        erd_values = {}
-        erd_detected_channels = []
+        # --- START OF MODIFIED LOGIC FOR AVERAGING ---
+        
+        active_powers = []
+        baseline_powers = []
         
         for idx in self.selected_indices:
-            # Get current window
             window_data = list(self.channel_buffers[idx])[-int(self.window_size * self.fs):]
-            
-            # Calculate current power
             current_power = self.calculate_band_power(window_data, self.selected_band)
             
-            # Update baseline based on method
-            if self.adaptation_method != 'static':
-                if self.adaptation_method == 'sliding':
-                    self.update_baseline_sliding(idx, current_power)
-                elif self.adaptation_method == 'exponential':
-                    self.update_baseline_exponential(idx, current_power)
-                elif self.adaptation_method == 'kalman':
-                    self.update_baseline_kalman(idx, current_power)
-                elif self.adaptation_method == 'hybrid':
-                    self.update_baseline_sliding(idx, current_power)
-                    if self.is_resting:
-                        self.update_baseline_exponential(idx, current_power)
+            self.update_baseline_sliding(idx, current_power)
+            if self.is_resting:
+                self.update_baseline_exponential(idx, current_power)
             
-            # Calculate ERD with safety checks
-            reference = self.baseline_power[idx]
-            erd = self.calculate_erd_safe(reference, current_power, idx)
+            active_powers.append(current_power)
+            baseline_powers.append(self.baseline_power[idx])
+
+        if not active_powers:
+            return False, {}
             
-            if not np.isnan(erd):
-                ch_name = self.channel_names[idx] if idx < len(self.channel_names) else f"Ch{idx}"
-                erd_values[ch_name] = erd
-                
-                if erd > self.erd_threshold:
-                    erd_detected_channels.append(ch_name)
+        avg_active_power = np.mean(active_powers)
+        avg_baseline_power = np.mean(baseline_powers)
         
-        # Update rest detection
-        self.detect_rest_periods(erd_values)
+        self.unified_baseline_power = avg_baseline_power
         
-        # ERD detection logic
-        self.erd_detected = len(erd_detected_channels) > 0
+        first_channel_idx = self.selected_indices[0]
+        unified_erd = self.calculate_erd_safe(avg_baseline_power, avg_active_power, first_channel_idx)
+        
+        erd_values = {'ERD_Avg': unified_erd}
+        
+        self.detect_rest_periods({'unified': unified_erd})
+        
+        self.erd_detected = unified_erd > self.erd_threshold
         self.erd_values = erd_values
         
-        return self.erd_detected, erd_values
+        return self.erd_detected, self.erd_values
     
     def get_status_info(self):
-        """Get comprehensive system status"""
-        return {
+        """Get comprehensive system status, including unified baseline power."""
+        status = {
             'baseline_method': self.adaptation_method,
             'is_resting': self.is_resting,
             'rest_confidence': self.rest_confidence,
             'channel_status': {
                 self.channel_names[idx]: self.channel_status.get(idx, 'UNKNOWN')
-                for idx in self.selected_indices
-                if idx < len(self.channel_names)
+                for idx in self.selected_indices if idx < len(self.channel_names)
             },
-            'baseline_values': {
-                self.channel_names[idx]: self.baseline_power.get(idx, 0)
-                for idx in self.selected_indices
-                if idx < len(self.channel_names)
-            }
+            # MODIFIED: Add the unified baseline for easy access
+            'unified_baseline_power': self.unified_baseline_power
         }
-
-
-#==========================================================================================
-# UNIFIED GUI CLASS
+        # For backward compatibility with any part of the GUI that might use this
+        status['baseline_values'] = {
+                self.channel_names[idx]: self.baseline_power.get(idx, 0)
+                for idx in self.selected_indices if idx < len(self.channel_names)
+        }
+        return status
 
 class UnifiedERDGUI:
     """

@@ -34,7 +34,7 @@ def run_erd_demo(mode='virtual', duration=30):
             'broadcast': True
         }
     
-    from erd_detection_gui import AdaptiveERDDetector
+    from erd_detection_system import AdaptiveERDDetector
     
     print(f"Starting ERD Detection Demo ({mode} mode)")
     print("=" * 50)

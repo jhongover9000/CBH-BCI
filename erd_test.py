@@ -25,7 +25,7 @@ def run_fixed_erd_system():
         from erd_quick_fix import patch_virtual_receiver
         print("Using original virtual receiver with patches")
     
-    from erd_detection_gui import AdaptiveERDDetector
+    from erd_detection_system import AdaptiveERDDetector
     
     # Create and initialize emulator
     print("\n1. Initializing virtual EEG stream...")
