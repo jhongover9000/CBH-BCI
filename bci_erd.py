@@ -44,8 +44,9 @@ class BCIConfig:
     
     # Preprocessing settings
     USE_CAR = True  # Common Average Reference
-    ARTIFACT_METHOD = 'laplacian'  # 'ica' or 'laplacian' or 'threshold'
+    ARTIFACT_METHOD = 'threshold'  # 'ica' or 'threshold'
     ARTIFACT_THRESHOLD = 100.0  # microvolts
+    SPATIAL_METHOD = 'laplacian'
     
     # Connection settings
     LIVESTREAM_IP = "169.254.1.147"
@@ -86,10 +87,10 @@ class Preprocessor:
                                       BCIConfig.ERD_BAND[1]/nyquist], 
                                      btype='band')
         
-        # BPF (0.5-50 Hz)
+        # BPF (0.5-40 Hz)
         self.artifact_b, self.artifact_a = butter(4, 
                                                  [0.5/nyquist, 
-                                                  min(50/nyquist, 0.99)], 
+                                                  min(40/nyquist, 0.99)], 
                                                  btype='band')
     
     def preprocess_data(self, data, selected_channels=None):
@@ -104,27 +105,36 @@ class Preprocessor:
             preprocessed_data: full preprocessed data
             erd_data: preprocessed data for selected channels only
         """
-        # Step 1: Basic BPF/Artifact Filter
-        filtered_data = self._apply_artifact_filter(data)
+
+        # Step 1: Basic Causal Filter (BPF)
+        filtered_data = self._causal_filter(data)
 
         # Step 2: Artifact rejection
         ar_data = self._reject_artifacts(filtered_data)
         
         # Step 3: Common Average Reference
         if BCIConfig.USE_CAR:
-            clean_data = self._apply_car(ar_data)
+            car_data = self._apply_car(ar_data)
         else:
-            clean_data = ar_data
+            car_data = ar_data
+
+        # Step 4: Spatial Filtering
+        if BCIConfig.SPATIAL_METHOD:
+            spatial_data = self._spatial_filtering(car_data)
         
-        # Step 4: Extract and filter ERD channels
+        # Step 5: Extract and filter ERD channels
         if selected_channels is not None:
-            erd_data = clean_data[selected_channels, :]
-            erd_data_filtered = self._apply_mu_filter(erd_data)
-            return clean_data, erd_data_filtered
+
+            erd_data = spatial_data[selected_channels, :]
+
+            # We don't make another BPF for the specific band as
+            # it may distort data and causes further overhead
+
+            return erd_data
         
-        return clean_data, None
+        return spatial_data
     
-    def _apply_artifact_filter(self, data):
+    def _causal_filter(self, data):
         """Apply basic frequency filter for artifact removal"""
         filtered = np.zeros_like(data)
         for ch in range(data.shape[0]):
@@ -145,12 +155,16 @@ class Preprocessor:
         """Reject artifacts using selected method"""
         if BCIConfig.ARTIFACT_METHOD == 'threshold':
             return self._threshold_artifact_rejection(data)
-        elif BCIConfig.ARTIFACT_METHOD == 'laplacian':
-            return self._laplacian_artifact_rejection(data)
         elif BCIConfig.ARTIFACT_METHOD == 'ica':
             return self._ica_artifact_rejection(data)
         else:
             return data
+        
+    def _spatial_filtering(self, data):
+        """Apply spatial filtering to data (AFTER preprocessing, before power extraction)"""
+        if BCIConfig.SPATIAL_METHOD == 'laplacian':
+            return self._laplacian_spatial_filter(data)
+        # idk if there are other methods we want then this can go here
     
     def _threshold_artifact_rejection(self, data):
         """Simple threshold-based artifact rejection"""
@@ -171,7 +185,7 @@ class Preprocessor:
         
         return clean_data
     
-    def _laplacian_artifact_rejection(self, data):
+    def _laplacian_spatial_filter(self, data):
         """Laplacian spatial filter for artifact rejection"""
         # Create Laplacian montage for motor channels
         laplacian_data = data.copy()
@@ -180,11 +194,18 @@ class Preprocessor:
         # This is simplified - in practice, use actual electrode positions
         for i, ch_name in enumerate(self.channel_names):
             if 'C3' in ch_name:
-                neighbors = self._find_neighbors(i, ['FC3', 'CP3', 'C1', 'C5'])
+                # Small laplacian (5-point method)
+                # neighbors = self._find_neighbors(i, ['FC3', 'CP3', 'C1', 'C5'])
+                # Large laplacian (9-point method)
+                neighbors = self._find_neighbors(i, ['FC3', 'CP3', 'C1', 'C5', 'FC5', 'FC1', 'CP5', 'CP1'])
             elif 'C4' in ch_name:
+                # Small laplacian (5-point method)
                 neighbors = self._find_neighbors(i, ['FC4', 'CP4', 'C2', 'C6'])
+                # Large laplacian (9-point method)
             elif 'Cz' in ch_name:
+                # Small laplacian (5-point method)
                 neighbors = self._find_neighbors(i, ['FCz', 'CPz', 'C1', 'C2'])
+                # Large laplacian (9-point method)
             else:
                 continue
             
@@ -207,7 +228,7 @@ class Preprocessor:
     def _ica_artifact_rejection(self, data):
         """ICA-based artifact rejection (simplified)"""
         # Note: Full ICA is computationally expensive
-        # This is a placeholder - use MNE's ICA for real implementation
+        # MNE ICA IMPLEMENTATION WILL GO HERE
         print("Warning: ICA artifact rejection not fully implemented")
         return data
     
@@ -306,7 +327,7 @@ class ERDDetectionSystem:
         baseline_data = np.array(self.baseline_buffer).T
         
         # Preprocess baseline data
-        _, erd_data = self.preprocessor.preprocess_data(baseline_data, self.erd_channel_indices)
+        erd_data = self.preprocessor.preprocess_data(baseline_data, self.erd_channel_indices)
         
         # Calculate baseline power
         self.baseline_power = self.preprocessor.calculate_band_power(erd_data)
@@ -330,7 +351,7 @@ class ERDDetectionSystem:
             return False, {}
         
         # Preprocess data
-        _, erd_data = self.preprocessor.preprocess_data(data, self.erd_channel_indices)
+        erd_data = self.preprocessor.preprocess_data(data, self.erd_channel_indices)
         
         # Calculate current power
         current_power = self.preprocessor.calculate_band_power(erd_data)
