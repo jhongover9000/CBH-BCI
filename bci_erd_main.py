@@ -33,14 +33,14 @@ class BCIConfig:
     """Central configuration for BCI ERD system"""
     
     # Buffer settings
-    MAIN_BUFFER_DURATION = 5.0      # seconds
+    MAIN_BUFFER_DURATION = 10.0      # seconds
     BASELINE_BUFFER_DURATION = 2.0  # seconds (≤ main buffer)
     OPERATING_WINDOW_DURATION = 0.5 # seconds
     
     # ERD detection settings
-    ERD_CHANNELS = ['C3', 'C4', 'Cz']
+    ERD_CHANNELS = ['C3']
     ERD_BAND = (8, 12)  # mu band in Hz
-    ERD_THRESHOLD = 20.0  # percent
+    ERD_THRESHOLD = 80.0  # percent
     
     # Preprocessing settings
     USE_CAR = True  # Common Average Reference
@@ -111,6 +111,8 @@ class Preprocessor:
 
         # Step 2: Artifact rejection
         ar_data = self._reject_artifacts(filtered_data)
+
+        # Possibly ICA?
         
         # Step 3: Common Average Reference
         if BCIConfig.USE_CAR:
