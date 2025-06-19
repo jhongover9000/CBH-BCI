@@ -89,14 +89,14 @@ class AdaptiveERDDetector:
         self.selected_band = 'mu'
         self.erd_threshold = 80.0
         self.baseline_duration = 2.0
-        self.window_size = 0.5
-        self.overlap = 0.8
+        self.window_size = 1.0
+        self.overlap = 0.5
         
         # Baseline adaptation parameters
         self.adaptation_method = 'hybrid' # Hybrid is now the default and only active method
         self.adaptation_rate = 0.01
         self.sliding_baseline_window = 30.0
-        self.rest_detection_threshold = 5.0
+        self.rest_detection_threshold = 20.0
         self.min_valid_power = 1e-9
         self.max_valid_erd = 95.0
         
@@ -285,9 +285,6 @@ class AdaptiveERDDetector:
         return True
     
     def detect_erd(self, new_data):
-        """
-        Main ERD detection with MULTI-CHANNEL AVERAGING for improved SNR.
-        """
         if new_data.shape[0] < max(self.selected_indices) + 1:
             return False, {}
         
@@ -299,14 +296,10 @@ class AdaptiveERDDetector:
             return False, {}
         
         if not self.is_baseline_set:
-            # This logic now handles both initial and manual recalibration
             if len(list(self.channel_buffers.values())[0]) >= self.baseline_duration * self.fs:
                 self.set_baseline()
             else:
-                # Still collecting data for the new baseline
                 return False, {'ERD_Avg': 0.0, 'status': 'CALIBRATING'}
-        
-        # --- START OF MODIFIED LOGIC FOR AVERAGING ---
         
         active_powers = []
         baseline_powers = []

@@ -1,599 +1,674 @@
 '''
 BCI_ERD.py
 --------
-BCI Main Code Implementation with ERD Detection
+Main BCI ERD System Launcher
 
-Description: Main code for the BCI system using ERD detection
-instead of machine learning classification. Supports emulation
-and livestreaming modes with auto-scaling and real-time
-threshold adjustment.
+Description: Main launcher that coordinates all components:
+- Livestream receiver for data collection
+- ERD detection system with preprocessing
+- Broadcasting system for output
 
 Joseph Hong
 '''
 
-# =============================================================
-# =============================================================
-
-# Includes
 import numpy as np
+import time
 from datetime import datetime
-import os
 import argparse
-import mne
 import threading
+import queue
+from collections import deque
+import mne
+from scipy import signal
+from scipy.signal import butter, filtfilt
 import tkinter as tk
 from tkinter import ttk
-import time
-from collections import deque
-import queue
-import sys
-try:
-    import msvcrt # For Windows
-except ImportError:
-    import select # For Unix-based systems
-
-# ERD Detection imports
-from erd_detection_system import AdaptiveERDDetector
-from erd_quick_fix import fix_erd_detector
-from livestream_autoscaler import LivestreamAutoScaler
 
 
 # =============================================================
+# CONFIGURATION
 # =============================================================
-# Variables
 
-# Command line arguments
-is_virtual = False
-is_verbose = False
-is_lsl = False
-is_broadcasting = False
-show_gui = True
-auto_scale = True
-
-# Directories
-data_dir = './data/'
-results_dir = "./results/"
-
-# Emulator Variables
-vhdr_name_loc = ""
-raw_eeg_loc = ""
-latency = ""
-
-# Livestreamer Variables (Editable)
-streamer_ip = "169.254.1.147"
-streamer_port = 51244
-
-# ERD Detection Variables (Editable)
-erd_channels = ['C3','CP3','P3','C5','C1','FC3'] 
-erd_band = 'mu'  # Frequency band (mu: 8-12 Hz)
-erd_threshold = 80.0  # ERD detection threshold (%)
-baseline_duration = 2.0  # Seconds for baseline
-adaptation_method = 'hybrid'  # Baseline adaptation method
-
-# Data Info Variables (Autoinitialized)
-sfreq = 0
-sampling_interval_us = 0
-num_channels = 0
-ch_names = []
-selected_channel_indices = []
-
-# Receiver Variables (Editable)
-seconds_to_run = 600  # Total run time
-update_interval = 0.5  # How often to print status (seconds)
-
-# Statistics
-detection_count = 0
-start_time = None
-last_update_time = None
-
-# GUI Components
-gui_thread = None
-gui_queue = None
-root = None
-
-# For real-time threshold and baseline adjustment
-stop_thread = threading.Event()
-manual_baseline_reset_requested = False
-
-# =============================================================
-# =============================================================
-# Functions
-
-def input_listener_thread():
-    """A thread to listen for keyboard input for real-time adjustments."""
-    global erd_threshold, manual_baseline_reset_requested
+class BCIConfig:
+    """Central configuration for BCI ERD system"""
     
-    # Instructions
-    print("\nReal-time controls enabled:")
-    print("  'u'/'d': Increase/Decrease ERD Threshold")
-    print("  'b'    : Manually reset baseline calibration")
-    print("Press Enter to start...")
+    # Buffer settings
+    MAIN_BUFFER_DURATION = 5.0      # seconds
+    BASELINE_BUFFER_DURATION = 2.0  # seconds (≤ main buffer)
+    OPERATING_WINDOW_DURATION = 0.5 # seconds
+    
+    # ERD detection settings
+    ERD_CHANNELS = ['C3', 'C4', 'Cz']
+    ERD_BAND = (8, 12)  # mu band in Hz
+    ERD_THRESHOLD = 20.0  # percent
+    
+    # Preprocessing settings
+    USE_CAR = True  # Common Average Reference
+    ARTIFACT_METHOD = 'laplacian'  # 'ica' or 'laplacian' or 'threshold'
+    ARTIFACT_THRESHOLD = 100.0  # microvolts
+    
+    # Connection settings
+    LIVESTREAM_IP = "169.254.1.147"
+    LIVESTREAM_PORT = 51244
+    
+    # Output settings
+    BROADCAST_ENABLED = True
+    VERBOSE = False
+    GUI_ENABLED = True
+    
+    # Session settings
+    SESSION_DURATION = 600  # seconds
+    UPDATE_INTERVAL = 0.5   # seconds
 
-    while not stop_thread.is_set():
-        try:
-            if 'msvcrt' in sys.modules:
-                if msvcrt.kbhit():
-                    char = msvcrt.getch().decode('utf-8').lower()
-                else:
-                    time.sleep(0.1)
-                    continue
-            else: # Unix
-                dr, _, _ = select.select([sys.stdin], [], [], 0.1)
-                if dr:
-                    char = sys.stdin.read(1)
-                else:
-                    continue
+
+# =============================================================
+# PREPROCESSING FUNCTIONS
+# =============================================================
+
+class Preprocessor:
+    """Preprocessing pipeline for EEG data"""
+    
+    def __init__(self, sampling_freq, channel_names):
+        self.fs = sampling_freq
+        self.channel_names = channel_names
+        self.n_channels = len(channel_names)
+        
+        # Initialize filters
+        self._init_filters()
+        
+    def _init_filters(self):
+        """Initialize bandpass filters"""
+        nyquist = self.fs / 2
+        
+        # Mu band filter
+        self.mu_b, self.mu_a = butter(4, 
+                                     [BCIConfig.ERD_BAND[0]/nyquist, 
+                                      BCIConfig.ERD_BAND[1]/nyquist], 
+                                     btype='band')
+        
+        # BPF (0.5-50 Hz)
+        self.artifact_b, self.artifact_a = butter(4, 
+                                                 [0.5/nyquist, 
+                                                  min(50/nyquist, 0.99)], 
+                                                 btype='band')
+    
+    def preprocess_data(self, data, selected_channels=None):
+        """
+        Full preprocessing pipeline
+        
+        Args:
+            data: numpy array (n_channels, n_samples)
+            selected_channels: list of channel indices for ERD
             
-            if char == 'u':
-                erd_threshold += 5.0
-                print(f"\n*** Threshold INCREASED to {erd_threshold:.1f}% ***")
-            elif char == 'd':
-                erd_threshold = max(0.0, erd_threshold - 5.0)
-                print(f"\n*** Threshold DECREASED to {erd_threshold:.1f}% ***")
-            elif char == 'b':
-                # Set a flag for the main loop to handle the reset
-                manual_baseline_reset_requested = True
-        
-        except (IOError, UnicodeDecodeError):
-            time.sleep(0.1)
+        Returns:
+            preprocessed_data: full preprocessed data
+            erd_data: preprocessed data for selected channels only
+        """
+        # Step 1: Basic BPF/Artifact Filter
+        filtered_data = self._apply_artifact_filter(data)
 
-# Initialize BCI System Type
-def initialize_bci(args):
-    """Initialize appropriate receiver based on arguments"""
-    if args.virtual:
-        from receivers import virtual_receiver
-        receiver = virtual_receiver.Emulator()
+        # Step 2: Artifact rejection
+        ar_data = self._reject_artifacts(filtered_data)
         
-        # Apply auto-scaling patch if enabled
-        if auto_scale:
-            try:
-                from erd_quick_fix import patch_virtual_receiver
-                receiver = patch_virtual_receiver(receiver)
-                print("Applied auto-scaling to virtual receiver")
-            except:
-                print("Warning: Could not apply auto-scaling patch")
-                
-        return receiver
+        # Step 3: Common Average Reference
+        if BCIConfig.USE_CAR:
+            clean_data = self._apply_car(ar_data)
+        else:
+            clean_data = ar_data
         
-    elif args.supernumerary and args.lsl:
-        from receivers import cair_receiver
-        return cair_receiver.CAIRReceiver()
+        # Step 4: Extract and filter ERD channels
+        if selected_channels is not None:
+            erd_data = clean_data[selected_channels, :]
+            erd_data_filtered = self._apply_mu_filter(erd_data)
+            return clean_data, erd_data_filtered
         
-    else:
-        from receivers import livestream_receiver
-        receiver = livestream_receiver.LivestreamReceiver(
-            address=streamer_ip,
-            port=streamer_port,
-            broadcast=args.broadcast
-        )
-        
-        # Wrap with auto-scaler if enabled
-        if auto_scale:
-            try:
-                from livestream_autoscaler import ScaledLivestreamReceiver
-                # Create wrapper that preserves original methods
-                class AutoScaledReceiver:
-                    def __init__(self, original_receiver):
-                        self.receiver = original_receiver
-                        self.scaler = LivestreamAutoScaler(
-                            target_std=50.0,
-                            learning_duration=5.0,
-                            fs=1000  # Will be updated after connection
-                        )
-                        self.scaler_initialized = False
-                    
-                    def initialize_connection(self):
-                        result = self.receiver.initialize_connection()
-                        # Update scaler with actual sampling rate
-                        self.scaler.fs = result[0]
-                        self.scaler_initialized = True
-                        return result
-                    
-                    def get_data(self):
-                        raw_data = self.receiver.get_data()
-                        if raw_data is not None and self.scaler_initialized:
-                            return self.scaler.process(raw_data)
-                        return raw_data
-                    
-                    def __getattr__(self, name):
-                        # Pass through other methods
-                        return getattr(self.receiver, name)
-                
-                return AutoScaledReceiver(receiver)
-                
-            except ImportError:
-                print("Warning: Auto-scaling not available for livestream")
-                
-        return receiver
-
-
-# ERD-specific GUI
-class ERDMonitorGUI:
-    """Simple GUI for monitoring ERD detection"""
+        return clean_data, None
     
-    def __init__(self, queue_in):
-        self.queue = queue_in
-        self.root = tk.Tk()
-        self.root.title("ERD Detection Monitor")
-        self.root.geometry("600x400")
+    def _apply_artifact_filter(self, data):
+        """Apply basic frequency filter for artifact removal"""
+        filtered = np.zeros_like(data)
+        for ch in range(data.shape[0]):
+            filtered[ch, :] = filtfilt(self.artifact_b, self.artifact_a, data[ch, :])
+        return filtered
+    
+    def _apply_car(self, data):
+        """Apply Common Average Reference"""
+        # Calculate average across all channels
+        car_signal = np.mean(data, axis=0)
         
-        # Main frame
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Subtract from each channel
+        car_data = data - car_signal[np.newaxis, :]
         
-        # Status frame
-        status_frame = ttk.LabelFrame(main_frame, text="Detection Status", padding="10")
-        status_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        return car_data
+    
+    def _reject_artifacts(self, data):
+        """Reject artifacts using selected method"""
+        if BCIConfig.ARTIFACT_METHOD == 'threshold':
+            return self._threshold_artifact_rejection(data)
+        elif BCIConfig.ARTIFACT_METHOD == 'laplacian':
+            return self._laplacian_artifact_rejection(data)
+        elif BCIConfig.ARTIFACT_METHOD == 'ica':
+            return self._ica_artifact_rejection(data)
+        else:
+            return data
+    
+    def _threshold_artifact_rejection(self, data):
+        """Simple threshold-based artifact rejection"""
+        clean_data = data.copy()
         
-        self.status_label = ttk.Label(status_frame, text="NO DETECTION", 
-                                     font=("Arial", 20, "bold"))
-        self.status_label.pack()
+        # Find samples exceeding threshold
+        artifact_mask = np.abs(data) > BCIConfig.ARTIFACT_THRESHOLD
         
-        # ERD values
-        values_frame = ttk.LabelFrame(main_frame, text="ERD Values", padding="10")
-        values_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        # Replace artifacts with interpolated values
+        for ch in range(data.shape[0]):
+            if np.any(artifact_mask[ch, :]):
+                artifact_indices = np.where(artifact_mask[ch, :])[0]
+                
+                # Simple interpolation
+                for idx in artifact_indices:
+                    if 0 < idx < len(data[ch]) - 1:
+                        clean_data[ch, idx] = (data[ch, idx-1] + data[ch, idx+1]) / 2
         
-        self.values_text = tk.Text(values_frame, width=30, height=10, font=("Courier", 10))
-        self.values_text.pack()
+        return clean_data
+    
+    def _laplacian_artifact_rejection(self, data):
+        """Laplacian spatial filter for artifact rejection"""
+        # Create Laplacian montage for motor channels
+        laplacian_data = data.copy()
+        
+        # Find neighbor channels for each channel
+        # This is simplified - in practice, use actual electrode positions
+        for i, ch_name in enumerate(self.channel_names):
+            if 'C3' in ch_name:
+                neighbors = self._find_neighbors(i, ['FC3', 'CP3', 'C1', 'C5'])
+            elif 'C4' in ch_name:
+                neighbors = self._find_neighbors(i, ['FC4', 'CP4', 'C2', 'C6'])
+            elif 'Cz' in ch_name:
+                neighbors = self._find_neighbors(i, ['FCz', 'CPz', 'C1', 'C2'])
+            else:
+                continue
+            
+            if neighbors:
+                # Apply Laplacian: channel - mean(neighbors)
+                laplacian_data[i, :] = data[i, :] - np.mean(data[neighbors, :], axis=0)
+        
+        return laplacian_data
+    
+    def _find_neighbors(self, channel_idx, neighbor_names):
+        """Find indices of neighbor channels"""
+        neighbors = []
+        for name in neighbor_names:
+            for i, ch_name in enumerate(self.channel_names):
+                if name in ch_name:
+                    neighbors.append(i)
+                    break
+        return neighbors
+    
+    def _ica_artifact_rejection(self, data):
+        """ICA-based artifact rejection (simplified)"""
+        # Note: Full ICA is computationally expensive
+        # This is a placeholder - use MNE's ICA for real implementation
+        print("Warning: ICA artifact rejection not fully implemented")
+        return data
+    
+    def _apply_mu_filter(self, data):
+        """Apply mu band filter to selected channels"""
+        filtered = np.zeros_like(data)
+        for ch in range(data.shape[0]):
+            filtered[ch, :] = filtfilt(self.mu_b, self.mu_a, data[ch, :])
+        return filtered
+    
+    def calculate_band_power(self, data):
+        """Calculate power in mu band"""
+        # Use Welch's method for power calculation
+        powers = []
+        
+        for ch in range(data.shape[0]):
+            freqs, psd = signal.welch(data[ch, :], 
+                                     self.fs, 
+                                     nperseg=min(len(data[ch, :]), int(self.fs)))
+            
+            # Extract mu band power
+            mu_mask = (freqs >= BCIConfig.ERD_BAND[0]) & (freqs <= BCIConfig.ERD_BAND[1])
+            mu_power = np.mean(psd[mu_mask])
+            powers.append(mu_power)
+        
+        return np.array(powers)
+
+
+# =============================================================
+# ERD DETECTION SYSTEM
+# =============================================================
+
+class ERDDetectionSystem:
+    """ERD Detection with integrated preprocessing"""
+    
+    def __init__(self, sampling_freq, channel_names):
+        self.fs = sampling_freq
+        self.channel_names = channel_names
+        self.n_channels = len(channel_names)
+        
+        # Initialize preprocessor
+        self.preprocessor = Preprocessor(sampling_freq, channel_names)
+        
+        # Find ERD channel indices
+        self.erd_channel_indices = self._find_erd_channels()
+        
+        # Baseline state
+        self.baseline_buffer = deque(maxlen=int(BCIConfig.BASELINE_BUFFER_DURATION * self.fs))
+        self.baseline_power = None
+        self.baseline_calculated = False
         
         # Statistics
-        stats_frame = ttk.LabelFrame(main_frame, text="Statistics", padding="10")
-        stats_frame.grid(row=1, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        self.erd_history = deque(maxlen=100)
         
-        self.stats_text = tk.Text(stats_frame, width=30, height=10, font=("Courier", 10))
-        self.stats_text.pack()
-        
-        # Configure grid
-        main_frame.columnconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(1, weight=1)
-        
-        # Start update loop
-        self.update_gui()
-        
-    def update_gui(self):
-        """Update GUI with latest data"""
-        try:
-            # Get all available updates
-            while not self.queue.empty():
-                data = self.queue.get_nowait()
-                
-                # Update status
-                if data['detected']:
-                    self.status_label.config(text="ERD DETECTED!", foreground="green")
-                else:
-                    self.status_label.config(text="NO DETECTION", foreground="gray")
-                
-                # Update ERD values
-                self.values_text.delete(1.0, tk.END)
-                self.values_text.insert(tk.END, "Channel   ERD%\n")
-                self.values_text.insert(tk.END, "-" * 20 + "\n")
-                for ch, erd in data['erd_values'].items():
-                    self.values_text.insert(tk.END, f"{ch:8s} {erd:6.1f}\n")
-                
-                # Update statistics
-                self.stats_text.delete(1.0, tk.END)
-                stats = data.get('stats', {})
-                self.stats_text.insert(tk.END, f"Runtime: {stats.get('runtime', 0):.1f}s\n")
-                self.stats_text.insert(tk.END, f"Detections: {stats.get('count', 0)}\n")
-                self.stats_text.insert(tk.END, f"Rate: {stats.get('rate', 0):.1f}/min\n")
-                self.stats_text.insert(tk.END, f"\nBaseline: {stats.get('baseline_set', False)}\n")
-                self.stats_text.insert(tk.END, f"Method: {stats.get('method', 'N/A')}\n")
-                # **NEW**: Show current threshold in GUI
-                self.stats_text.insert(tk.END, f"Threshold: {stats.get('threshold', 0):.1f}%\n")
-                
-        except queue.Empty:
-            pass
-        
-        # Schedule next update
-        self.root.after(1, self.update_gui)
-    
-    def run(self):
-        self.root.mainloop()
-
-
-def run_gui_thread(gui_queue):
-    """Run GUI in separate thread"""
-    from erd_gui_new import OptimizedERDGUI
-    gui = ERDMonitorGUI(gui_queue)
-    gui.run()
-
-
-# Print time and message
-def logTime(message):
-    if is_verbose:
-        print("===================================")
-        print(f"{message} {datetime.now()}")
-        print("")
-
-
-# Initialize ERD detector with channel selection
-def setup_erd_detector(detector, channel_names, target_channels):
-    """Setup ERD detector with proper channel selection"""
-    selected_indices = []
-    found_channels = []
-    
-    # Find target channels
-    for target in target_channels:
-        found = False
-        # Exact match first
-        if target in channel_names:
-            idx = channel_names.index(target)
-            selected_indices.append(idx)
-            found_channels.append(target)
-            found = True
-        else:
-            # Try case-insensitive match
-            for i, ch in enumerate(channel_names):
-                if target.lower() in ch.lower():
-                    selected_indices.append(i)
-                    found_channels.append(ch)
+    def _find_erd_channels(self):
+        """Find indices of ERD channels"""
+        indices = []
+        for target in BCIConfig.ERD_CHANNELS:
+            found = False
+            for i, ch_name in enumerate(self.channel_names):
+                if target in ch_name:
+                    indices.append(i)
                     found = True
                     break
-        
-        if not found and is_verbose:
-            print(f"Warning: Channel {target} not found")
-    
-    # If no channels found, use first few channels
-    if not selected_indices:
-        print("Warning: No target channels found, using first 3 channels")
-        selected_indices = list(range(min(3, len(channel_names))))
-        found_channels = [channel_names[i] for i in selected_indices]
-    
-    # Configure detector
-    detector.set_channels(channel_names, selected_indices)
-    
-    print(f"ERD monitoring channels: {found_channels}")
-    return selected_indices
-
-
-# =============================================================
-# =============================================================
-# Execution
-if __name__ == "__main__":
-
-    # Grab arguments from command line
-    parser = argparse.ArgumentParser(description="BCI System with ERD Detection")
-
-    # Add arguments
-    parser.add_argument('--virtual', action='store_true',
-                        help="Enable virtual streaming using an emulator")
-    parser.add_argument('--verbose', action='store_true', 
-                        help="Enable verbose logging")
-    parser.add_argument('--lsl', action='store_true', 
-                        help="Stream using LSL")
-    parser.add_argument('--broadcast', action='store_true', 
-                        help="Broadcast to other application")
-    parser.add_argument('--supernumerary', action='store_true', 
-                        help="Send predictions to supernumerary thumb")
-    parser.add_argument('--no-gui', action='store_true',
-                        help="Disable GUI monitor")
-    parser.add_argument('--no-autoscale', action='store_true',
-                        help="Disable automatic scaling")
-    
-    # ERD-specific arguments
-    parser.add_argument('--channels', nargs='+', default=['C3'],
-                        help="Channels to monitor for ERD (default: C3)")
-    parser.add_argument('--band', choices=['mu', 'beta', 'alpha'], default='mu',
-                        help="Frequency band for ERD (default: mu)")
-    parser.add_argument('--threshold', type=float, default=20.0,
-                        help="ERD detection threshold in percent (default: 20)")
-    parser.add_argument('--baseline', type=float, default=2.0,
-                        help="Baseline duration in seconds (default: 2)")
-    parser.add_argument('--adaptation', choices=['static', 'sliding', 'exponential', 'kalman', 'hybrid'],
-                        default='hybrid', help="Baseline adaptation method (default: hybrid)")
-    parser.add_argument('--duration', type=int, default=600,
-                        help="Run duration in seconds (default: 600)")
-
-    # Parse arguments
-    args = parser.parse_args()
-    is_virtual = args.virtual
-    is_verbose = args.verbose
-    is_lsl = args.lsl
-    is_broadcasting = args.broadcast
-    show_gui = not args.no_gui
-    auto_scale = not args.no_autoscale
-    
-    # ERD parameters
-    # erd_channels = args.channels
-    erd_band = args.band
-    # erd_threshold = args.threshold
-    baseline_duration = args.baseline
-    adaptation_method = args.adaptation
-    seconds_to_run = args.duration
-
-    # Print configuration
-    print("===================================")
-    print("BCI System with ERD Detection")
-    print("===================================")
-    print("Configuration:")
-    print(f"  Mode:              {'Virtual' if is_virtual else 'Livestream'}")
-    print(f"  Broadcasting:      {is_broadcasting}")
-    print(f"  Auto-scaling:      {auto_scale}")
-    print(f"  GUI:               {show_gui}")
-    print(f"  Verbose:           {is_verbose}")
-    print("\nERD Parameters:")
-    print(f"  Channels:          {erd_channels}")
-    print(f"  Frequency Band:    {erd_band}")
-    print(f"  Initial Threshold: {erd_threshold}%")
-    print(f"  Baseline Duration: {baseline_duration}s")
-    print(f"  Adaptation:        {adaptation_method}")
-    print(f"  Run Duration:      {seconds_to_run}s")
-    print("===================================\n")
-
-    # Initialize BCI receiver
-    logTime("Initializing BCI receiver...")
-    bci = initialize_bci(args)
-
-    # Initialize connection
-    logTime("Establishing connection...")
-    try:
-        sfreq, ch_names, num_channels, _ = bci.initialize_connection()
-        print(f"Connected: {num_channels} channels at {sfreq} Hz")
-    except Exception as e:
-        print(f"Connection failed: {e}")
-        exit(1)
-
-    # Initialize ERD detector
-    logTime("Setting up ERD detector...")
-    detector = AdaptiveERDDetector(sampling_freq=sfreq, buffer_size=int(2*sfreq))
-    
-    # Apply fixes for better detection
-    detector = fix_erd_detector(detector)
-    
-    # Configure detector parameters (threshold will be set in the loop)
-    detector.update_parameters(
-        band=erd_band,
-        baseline_duration=baseline_duration,
-        adaptation_method=adaptation_method
-    )
-    
-    
-    # Setup channels
-    selected_channel_indices = setup_erd_detector(detector, ch_names, erd_channels)
-    
-    # Start GUI if enabled
-    if show_gui:
-        gui_queue = queue.Queue()
-        gui_thread = threading.Thread(target=run_gui_thread, args=(gui_queue,))
-        gui_thread.daemon = True
-        gui_thread.start()
-        print("GUI monitor started")
-    else:
-        gui_queue = None
-
-    # Start the input listener thread
-    input_thread = threading.Thread(target=input_listener_thread)
-    input_thread.daemon = True
-    input_thread.start()
-
-# Wait for user to press Enter
-    input()
-
-    # **NEW**: Guided initial baseline collection
-    print("\n===================================")
-    print("Starting Initial Baseline Calibration")
-    print("Please relax, keep your eyes open, and avoid movement.")
-    for i in range(3, 0, -1):
-        print(f"Starting in {i}...", end='\r')
-        time.sleep(1)
-    print("                                      ", end='\r') # Clear line
-    print("CALIBRATING... Please remain relaxed.")
-    print("===================================\n")
-
-    # Initialize timing and counters
-    start_time = time.time()
-    last_update_time = start_time
-    detection_count = 0
-    sample_count = 0
-    baseline_set = False
-
-    # Main Loop
-    try:
-        while (time.time() - start_time) < seconds_to_run:
-            # **NEW**: Check for manual baseline reset request
-            if manual_baseline_reset_requested:
-                detector.reset_baseline_collection()
-                baseline_set = False # Mark that we are recalibrating
-                print("\nCALIBRATING... Please remain relaxed.")
-                manual_baseline_reset_requested = False # Reset the flag
-
-            detector.erd_threshold = erd_threshold
-            data = bci.get_data()
             
-            if data is not None:
-                sample_count += data.shape[1]
-                detected, erd_values = detector.detect_erd(data)
-                
-                # Check if baseline was just set (either initially or after manual reset)
-                if not baseline_set and detector.is_baseline_set:
-                    baseline_set = True
-                    print("\n✓ Baseline established! Starting ERD monitoring...\n")
-                
-                if detected:
-                    detection_count += 1
-                    if is_verbose:
-                        print(f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] ERD DETECTED!")
-                    bci.use_classification(1)
-                
-                current_time = time.time()
-                if current_time - last_update_time >= update_interval:
-                    runtime = current_time - start_time
-                    
-                    if not is_verbose:
-                        # **NEW**: Enhanced console output with baseline power
-                        status_info = detector.get_status_info()
-                        unified_erd_value = erd_values.get('ERD_Avg', 0.0)
-                        baseline_power = status_info.get('unified_baseline_power', 0.0)
-                        
-                        erd_str = f"Avg ERD: {unified_erd_value:5.1f}%"
-                        # Format power in a readable way, e.g., f-string
-                        power_str = f"Baseline Power: {baseline_power:.2f}"
-                        
-                        status = "DETECTED" if detected else "--------"
-                        if not baseline_set:
-                            status = "CALIBRATING..."
-                        
-                        print(f"[{runtime:6.1f}s] {erd_str:<18} | {power_str:<22} | Threshold: {erd_threshold:4.1f}% | {status} | Count: {detection_count}", end='\r')
-                    
-                    if gui_queue:
-                        # The GUI part will also need to be adapted to show the single averaged value
-                        # For simplicity, we can pass the same structure. The existing GUI might only show the first value.
-                        # For a proper GUI update, the ERDMonitorGUI class would need a small change.
-                        detection_rate = (detection_count / runtime) * 60 if runtime > 0 else 0
-                        try:
-                            gui_queue.put_nowait({
-                                'detected': detected,
-                                'erd_values': erd_values, # This now contains {'ERD_Avg': value}
-                                'stats': {
-                                    'runtime': runtime,
-                                    'count': detection_count,
-                                    'rate': detection_rate,
-                                    'baseline_set': baseline_set,
-                                    'method': detector.adaptation_method,
-                                    'threshold': erd_threshold
-                                }
-                            })
-                        except queue.Full:
-                            pass
-                    
-                    last_update_time = current_time
-                
-            if is_virtual:
-                time.sleep(0.001)
-                
-    except KeyboardInterrupt:
-        print("\n\nStopped by user")
-    except Exception as e:
-        print(f"\nError in main loop: {e}")
-        if is_verbose:
-            import traceback
-            traceback.print_exc()
+            if not found and BCIConfig.VERBOSE:
+                print(f"Warning: Channel {target} not found")
+        
+        if not indices:
+            print("Warning: No ERD channels found, using first 3")
+            indices = list(range(min(3, self.n_channels)))
+        
+        print(f"ERD channel indices: {indices} ({[self.channel_names[i] for i in indices]})")
+        return indices
     
-    finally:
-            stop_thread.set()
-            if 'msvcrt' not in sys.modules:
-                print("\nPress Enter to exit.")
-            input_thread.join(timeout=1.0)
-
-    # Disconnect
-    logTime("Disconnecting...")
-    bci.disconnect()
+    def add_to_baseline(self, data):
+        """Add data to baseline buffer"""
+        # Add samples to baseline buffer
+        for i in range(data.shape[1]):
+            self.baseline_buffer.append(data[:, i])
+        
+        # Check if baseline buffer is full
+        if len(self.baseline_buffer) >= self.baseline_buffer.maxlen:
+            if not self.baseline_calculated:
+                self.calculate_baseline()
     
-    # Print final summary
-    total_runtime = time.time() - start_time
-    print("\n\n===================================")
-    print("Session Summary")
-    print("===================================")
-    print(f"Total Runtime:     {total_runtime:.1f} seconds")
-    print(f"Samples Processed: {sample_count}")
-    if total_runtime > 0:
-        print(f"Sampling Rate:     {sample_count/total_runtime:.1f} Hz")
-        print(f"Detection Rate:    {detection_count/total_runtime*60:.1f} per minute")
-    print(f"ERD Detections:    {detection_count}")
-    print(f"Baseline Method:   {detector.adaptation_method}")
-    print(f"Final Threshold:   {erd_threshold:.1f}%")
-    print("===================================")
-    print("Stream Disconnected Successfully.")
+    def calculate_baseline(self, force=False):
+        """Calculate baseline power from buffer"""
+        if len(self.baseline_buffer) < self.baseline_buffer.maxlen and not force:
+            print("Baseline buffer not full")
+            return False
+        
+        print("Calculating baseline power...")
+        
+        # Convert buffer to array
+        baseline_data = np.array(self.baseline_buffer).T
+        
+        # Preprocess baseline data
+        _, erd_data = self.preprocessor.preprocess_data(baseline_data, self.erd_channel_indices)
+        
+        # Calculate baseline power
+        self.baseline_power = self.preprocessor.calculate_band_power(erd_data)
+        self.baseline_calculated = True
+        
+        print(f"Baseline power calculated: {self.baseline_power}")
+        return True
+    
+    def detect_erd(self, data):
+        """
+        Detect ERD in operating window
+        
+        Args:
+            data: numpy array (n_channels, n_samples) - operating window
+            
+        Returns:
+            detected: bool - whether ERD was detected
+            erd_values: dict - ERD percentage for each channel
+        """
+        if not self.baseline_calculated:
+            return False, {}
+        
+        # Preprocess data
+        _, erd_data = self.preprocessor.preprocess_data(data, self.erd_channel_indices)
+        
+        # Calculate current power
+        current_power = self.preprocessor.calculate_band_power(erd_data)
+        
+        # Calculate ERD percentage
+        erd_values = {}
+        detected_channels = []
+        
+        for i, ch_idx in enumerate(self.erd_channel_indices):
+            if self.baseline_power[i] > 0:
+                erd_percent = ((self.baseline_power[i] - current_power[i]) / 
+                              self.baseline_power[i]) * 100
+                
+                ch_name = self.channel_names[ch_idx]
+                erd_values[ch_name] = erd_percent
+                
+                if erd_percent > BCIConfig.ERD_THRESHOLD:
+                    detected_channels.append(ch_name)
+        
+        # Store in history
+        if erd_values:
+            avg_erd = np.mean(list(erd_values.values()))
+            self.erd_history.append(avg_erd)
+        
+        # Detection logic (at least one channel shows ERD)
+        detected = len(detected_channels) > 0
+        
+        return detected, erd_values
 
-# Execution End
+
+# =============================================================
+# MAIN BCI SYSTEM
+# =============================================================
+
+class BCIERDSystem:
+    """Main BCI ERD System coordinating all components"""
+    
+    def __init__(self, config=None):
+        self.config = config or BCIConfig()
+        
+        # Components
+        self.receiver = None
+        self.erd_detector = None
+        self.broadcaster = None
+        
+        # Buffers
+        self.main_buffer = None
+        self.main_buffer_size = 0
+        
+        # State
+        self.running = False
+        self.baseline_ready = False
+        self.session_start_time = None
+        
+        # Statistics
+        self.detection_count = 0
+        self.sample_count = 0
+        
+        # GUI
+        self.gui_queue = queue.Queue() if self.config.GUI_ENABLED else None
+        self.gui_thread = None
+        
+    def initialize(self, args):
+        """Initialize all components"""
+        print("Initializing BCI ERD System...")
+        
+        # Initialize receiver
+        self._init_receiver(args)
+        
+        # Initialize connection
+        print("Establishing connection...")
+        self.fs, self.ch_names, self.n_channels, _ = self.receiver.initialize_connection()
+        print(f"Connected: {self.n_channels} channels at {self.fs} Hz")
+        
+        # Calculate buffer sizes
+        self.main_buffer_size = int(self.config.MAIN_BUFFER_DURATION * self.fs)
+        self.operating_window_size = int(self.config.OPERATING_WINDOW_DURATION * self.fs)
+        
+        # Initialize main buffer
+        self.main_buffer = deque(maxlen=self.main_buffer_size)
+        
+        # Initialize ERD detector
+        self.erd_detector = ERDDetectionSystem(self.fs, self.ch_names)
+        
+        # Initialize broadcaster if enabled
+        if self.config.BROADCAST_ENABLED:
+            self._init_broadcaster()
+        
+        # Start GUI if enabled
+        if self.config.GUI_ENABLED:
+            self._start_gui()
+        
+        print("Initialization complete!")
+        
+    def _init_receiver(self, args):
+        """Initialize appropriate receiver"""
+        if args.virtual:
+            from receivers import virtual_receiver
+            self.receiver = virtual_receiver.Emulator()
+        else:
+            from receivers import livestream_receiver
+            self.receiver = livestream_receiver.LivestreamReceiver(
+                address=self.config.LIVESTREAM_IP,
+                port=self.config.LIVESTREAM_PORT,
+                broadcast=self.config.BROADCAST_ENABLED
+            )
+    
+    def _init_broadcaster(self):
+        """Initialize broadcasting component"""
+        # Broadcaster is handled by receiver in this implementation
+        pass
+    
+    def _start_gui(self):
+        """Start GUI monitor in separate thread"""
+        from bci_erd_gui import ERDMonitorGUI
+        self.gui_thread = threading.Thread(target=self._run_gui)
+        self.gui_thread.daemon = True
+        self.gui_thread.start()
+    
+    def _run_gui(self):
+        """Run GUI in separate thread"""
+        from bci_erd_gui import ERDMonitorGUI
+        gui = ERDMonitorGUI(self.gui_queue, self)
+        gui.run()
+    
+    def run(self):
+        """Main processing loop"""
+        print("\n" + "="*60)
+        print("Starting ERD Detection")
+        print("="*60)
+        
+        self.running = True
+        self.session_start_time = time.time()
+        last_update_time = time.time()
+        
+        # Phase tracking
+        phase = "COLLECTING_BASELINE"
+        
+        try:
+            while self.running and (time.time() - self.session_start_time) < self.config.SESSION_DURATION:
+                # Get data from receiver
+                data = self.receiver.get_data()
+                
+                if data is None:
+                    continue
+                
+                self.sample_count += data.shape[1]
+                
+                # Add data to main buffer (sample by sample to maintain deque behavior)
+                for i in range(data.shape[1]):
+                    self.main_buffer.append(data[:, i])
+                
+                # Phase 1: Fill baseline buffer
+                if phase == "COLLECTING_BASELINE":
+                    # Add to baseline buffer
+                    self.erd_detector.add_to_baseline(data)
+                    
+                    # Check if baseline is ready
+                    if self.erd_detector.baseline_calculated:
+                        phase = "DETECTING"
+                        print("\n✓ Baseline established! Starting ERD detection...\n")
+                        self.baseline_ready = True
+                    else:
+                        # Show progress
+                        progress = len(self.erd_detector.baseline_buffer) / self.erd_detector.baseline_buffer.maxlen
+                        if time.time() - last_update_time > 0.5:
+                            print(f"\rCollecting baseline: {progress*100:.1f}%", end='', flush=True)
+                
+                # Phase 2: ERD Detection
+                elif phase == "DETECTING" and len(self.main_buffer) >= self.operating_window_size:
+                    # Extract operating window from end of main buffer
+                    window_data = np.array(list(self.main_buffer))[-self.operating_window_size:].T
+                    
+                    # Detect ERD
+                    detected, erd_values = self.erd_detector.detect_erd(window_data)
+                    
+                    # Handle detection
+                    if detected:
+                        self.detection_count += 1
+                        if self.config.BROADCAST_ENABLED:
+                            self.receiver.use_classification(1)  # Send TAP command
+                    
+                    # Update display
+                    current_time = time.time()
+                    if current_time - last_update_time >= self.config.UPDATE_INTERVAL:
+                        self._update_display(detected, erd_values, current_time)
+                        last_update_time = current_time
+                        
+        except KeyboardInterrupt:
+            print("\n\nStopped by user")
+        except Exception as e:
+            print(f"\nError in main loop: {e}")
+            if self.config.VERBOSE:
+                import traceback
+                traceback.print_exc()
+        finally:
+            self.cleanup()
+    
+    def _update_display(self, detected, erd_values, current_time):
+        """Update console and GUI displays"""
+        runtime = current_time - self.session_start_time
+        detection_rate = (self.detection_count / runtime) * 60
+        
+        # Console output
+        if not self.config.VERBOSE:
+            erd_str = " | ".join([f"{ch}:{erd:.1f}%" for ch, erd in erd_values.items()])
+            status = "DETECTED" if detected else "--------"
+            print(f"[{runtime:6.1f}s] {erd_str} | {status} | Count: {self.detection_count}")
+        
+        # GUI update
+        if self.gui_queue:
+            try:
+                self.gui_queue.put_nowait({
+                    'detected': detected,
+                    'erd_values': erd_values,
+                    'runtime': runtime,
+                    'count': self.detection_count,
+                    'rate': detection_rate,
+                    'baseline_ready': self.baseline_ready
+                })
+            except queue.Full:
+                pass
+    
+    def manual_baseline_calculation(self):
+        """Manually trigger baseline calculation"""
+        if self.erd_detector:
+            success = self.erd_detector.calculate_baseline(force=True)
+            if success:
+                self.baseline_ready = True
+                print("Manual baseline calculation successful")
+            return success
+        return False
+    
+    def cleanup(self):
+        """Clean up resources"""
+        self.running = False
+        
+        # Disconnect receiver
+        if self.receiver:
+            self.receiver.disconnect()
+        
+        # Print summary
+        if self.session_start_time:
+            total_runtime = time.time() - self.session_start_time
+            print("\n" + "="*60)
+            print("Session Summary")
+            print("="*60)
+            print(f"Total Runtime:     {total_runtime:.1f} seconds")
+            print(f"Samples Processed: {self.sample_count}")
+            print(f"ERD Detections:    {self.detection_count}")
+            print(f"Detection Rate:    {self.detection_count/total_runtime*60:.1f} per minute")
+            print("="*60)
+
+
+# =============================================================
+# MAIN EXECUTION
+# =============================================================
+
+def main():
+    """Main entry point"""
+    parser = argparse.ArgumentParser(description="BCI ERD Detection System")
+    
+    # Connection options
+    parser.add_argument('--virtual', action='store_true',
+                       help="Use virtual receiver (testing)")
+    parser.add_argument('--ip', default=BCIConfig.LIVESTREAM_IP,
+                       help="Livestream IP address")
+    parser.add_argument('--port', type=int, default=BCIConfig.LIVESTREAM_PORT,
+                       help="Livestream port")
+    
+    # ERD options
+    parser.add_argument('--channels', nargs='+', default=BCIConfig.ERD_CHANNELS,
+                       help="Channels for ERD detection")
+    parser.add_argument('--threshold', type=float, default=BCIConfig.ERD_THRESHOLD,
+                       help="ERD detection threshold (%)")
+    parser.add_argument('--baseline-duration', type=float, default=BCIConfig.BASELINE_BUFFER_DURATION,
+                       help="Baseline duration (seconds)")
+    parser.add_argument('--window', type=float, default=BCIConfig.OPERATING_WINDOW_DURATION,
+                       help="Operating window duration (seconds)")
+    
+    # Preprocessing options
+    parser.add_argument('--no-car', action='store_true',
+                       help="Disable Common Average Reference")
+    parser.add_argument('--artifact-method', choices=['threshold', 'laplacian', 'ica'],
+                       default=BCIConfig.ARTIFACT_METHOD,
+                       help="Artifact rejection method")
+    
+    # Output options
+    parser.add_argument('--no-broadcast', action='store_true',
+                       help="Disable broadcasting")
+    parser.add_argument('--no-gui', action='store_true',
+                       help="Disable GUI")
+    parser.add_argument('--verbose', action='store_true',
+                       help="Verbose output")
+    
+    # Session options
+    parser.add_argument('--duration', type=int, default=BCIConfig.SESSION_DURATION,
+                       help="Session duration (seconds)")
+    
+    args = parser.parse_args()
+    
+    # Update configuration
+    BCIConfig.LIVESTREAM_IP = args.ip
+    BCIConfig.LIVESTREAM_PORT = args.port
+    BCIConfig.ERD_CHANNELS = args.channels
+    BCIConfig.ERD_THRESHOLD = args.threshold
+    BCIConfig.BASELINE_BUFFER_DURATION = args.baseline_duration
+    BCIConfig.OPERATING_WINDOW_DURATION = args.window
+    BCIConfig.USE_CAR = not args.no_car
+    BCIConfig.ARTIFACT_METHOD = args.artifact_method
+    BCIConfig.BROADCAST_ENABLED = not args.no_broadcast
+    BCIConfig.GUI_ENABLED = not args.no_gui
+    BCIConfig.VERBOSE = args.verbose
+    BCIConfig.SESSION_DURATION = args.duration
+    
+    # Validate baseline duration
+    if BCIConfig.BASELINE_BUFFER_DURATION > BCIConfig.MAIN_BUFFER_DURATION:
+        print(f"Error: Baseline duration ({BCIConfig.BASELINE_BUFFER_DURATION}s) cannot exceed main buffer ({BCIConfig.MAIN_BUFFER_DURATION}s)")
+        return
+    
+    # Print configuration
+    print("BCI ERD System Configuration")
+    print("="*60)
+    print(f"Mode:              {'Virtual' if args.virtual else 'Livestream'}")
+    print(f"Channels:          {BCIConfig.ERD_CHANNELS}")
+    print(f"Threshold:         {BCIConfig.ERD_THRESHOLD}%")
+    print(f"Baseline Duration: {BCIConfig.BASELINE_BUFFER_DURATION}s")
+    print(f"Operating Window:  {BCIConfig.OPERATING_WINDOW_DURATION}s")
+    print(f"Preprocessing:     CAR={'Yes' if BCIConfig.USE_CAR else 'No'}, Artifacts={BCIConfig.ARTIFACT_METHOD}")
+    print(f"Broadcasting:      {'Yes' if BCIConfig.BROADCAST_ENABLED else 'No'}")
+    print(f"GUI:               {'Yes' if BCIConfig.GUI_ENABLED else 'No'}")
+    print("="*60 + "\n")
+    
+    # Create and run system
+    system = BCIERDSystem()
+    system.initialize(args)
+    system.run()
+
+
+if __name__ == "__main__":
+    main()
