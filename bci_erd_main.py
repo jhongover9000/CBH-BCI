@@ -971,7 +971,6 @@ def main():
     system = BCIERDSystem()
     system.initialize(args)
     system.run()
-    handle_keyboard_input()
 
 
 if __name__ == "__main__":
