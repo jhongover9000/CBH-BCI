@@ -1,5 +1,5 @@
 '''
-Enhanced Virtual Receiver with automatic scaling and diagnostics
+Enhanced Virtual Receiver with automatic scaling, diagnostics, and annotation detection
 Fixes common issues with ERD detection in virtual mode
 '''
 
@@ -8,17 +8,17 @@ import numpy as np
 import mne
 from scipy import signal
 
-data_dir = "./data/rawdata/mit/"
+data_dir = "./data/rawdata/cbh/"
 
 class Emulator:
-    def __init__(self, fileName="MIT33", auto_scale=False, verbose=False):
+    def __init__(self, fileName="CBH0003", auto_scale=False, verbose=False):
         self.vhdr_file = f"{data_dir}{fileName}.vhdr"
         self.eeg_file = f"{data_dir}{fileName}.eeg"
         self.channel_count = 0
         self.sampling_frequency = 0
         self.sampling_interval_us = 0
         self.channel_names = []
-        self.latency = 0.0016
+        self.latency = 0.004
         self.chunk_size = None
         self.current_index = 0
         self.raw_data = None
@@ -30,6 +30,12 @@ class Emulator:
         self.verbose = verbose
         self.scaling_factor = 1.0
         self.dc_offset = None
+        
+        # Annotation tracking
+        self.annotations = None
+        self.annotation_onsets = None
+        self.annotation_descriptions = None
+        self.data_start_time = 0  # Track when the cropped data starts
         
     def initialize_connection(self):
         """Initialize connection with enhanced diagnostics"""
@@ -46,20 +52,37 @@ class Emulator:
         self.channel_names = self.raw_data.ch_names
         self.channel_count = len(self.channel_names)
 
+        # Store original annotations before cropping
+        # self.annotations = self.raw_data.annotations.copy()
+        
         # Find specific annotation (marker)
-        target_annotation = 'S  2'  # Replace with your marker name
+        target_annotation = 'Stimulus/S  4'  # Replace with your marker name
 
-        # Get annotations
-        annotations = self.raw_data.annotations
+        # # Get annotations
+        # annotations = self.raw_data.annotations
 
-        # Find the first occurrence of the target annotation
-        mask = annotations.description == target_annotation
-        if np.any(mask):
-            start_time = annotations.onset[mask][0]  # First occurrence
+        # # Find the first occurrence of the target annotation
+        # mask = annotations.description == target_annotation
+        # if np.any(mask):
+        #     start_time = annotations.onset[mask][15]  # First occurrence
+        #     self.data_start_time = start_time  # Store the actual start time
+
+        #     print (self.data_start_time)
+
+        # self.data_start_time = 800
             
-            # Crop from this time point
-            self.raw_data = self.raw_data.crop(tmin=start_time-2000)
+        # # Crop from this time point
+        # self.raw_data = self.raw_data.crop(tmin=self.data_start_time)
             
+        # Update annotations after cropping - adjust onset times relative to new start
+        self.annotations = self.raw_data.annotations
+        self.annotation_onsets = self.annotations.onset
+        self.annotation_descriptions = self.annotations.description
+        
+        if self.verbose:
+            print(f"Found {len(self.annotation_onsets)} annotations after cropping")
+            if len(self.annotation_onsets) > 0:
+                print(f"First few annotations: {list(self.annotation_descriptions[:5])}")
         
         # Create info
         self.info = mne.create_info(
@@ -166,8 +189,29 @@ class Emulator:
             if self.verbose:
                 print(f"  DC offset removed")
     
+    def _check_annotations_in_chunk(self, start_sample, end_sample):
+        """Check if any annotations fall within the current chunk"""
+        if self.annotation_onsets is None or len(self.annotation_onsets) == 0:
+            return []
+        
+        # Convert sample indices to time
+        start_time = start_sample / self.sampling_frequency
+        end_time = end_sample / self.sampling_frequency
+        
+        # Find annotations within this time window
+        annotations_in_chunk = []
+        for i, onset_time in enumerate(self.annotation_onsets):
+            if start_time <= onset_time < end_time:
+                annotations_in_chunk.append({
+                    'onset_time': onset_time,
+                    'description': self.annotation_descriptions[i],
+                    'sample_index': int(onset_time * self.sampling_frequency)
+                })
+        
+        return annotations_in_chunk
+    
     def get_data(self):
-        """Get next chunk of data with optional diagnostics"""
+        """Get next chunk of data with annotation detection"""
         time.sleep(self.latency)
         total_samples = self.raw_data._data.shape[1]
         
@@ -178,6 +222,19 @@ class Emulator:
             return None
         
         chunk_end = min(self.current_index + self.chunk_size, total_samples)
+        
+        # Check for annotations in this chunk
+        annotations_in_chunk = self._check_annotations_in_chunk(self.current_index, chunk_end)
+        
+        # Print annotation information if found
+        if annotations_in_chunk:
+            for annotation in annotations_in_chunk:
+                if annotation['description'] != 'Stimulus/S  1':
+                    current_time = self.current_index / self.sampling_frequency
+                    # print(f"📍 ANNOTATION DETECTED at t={annotation['onset_time']:.3f}s "
+                    #     f"(sample {annotation['sample_index']}): '{annotation['description']}'")
+            
+        # Get the data chunk
         data_chunk = self.raw_data._data[:, self.current_index:chunk_end].copy()
         self.current_index = chunk_end
         
@@ -192,7 +249,8 @@ class Emulator:
             'scaling_factor': self.scaling_factor,
             'dc_offset_removed': self.dc_offset is not None,
             'total_duration': self.raw_data._data.shape[1] / self.sampling_frequency,
-            'data_shape': self.raw_data._data.shape
+            'data_shape': self.raw_data._data.shape,
+            'n_annotations': len(self.annotation_onsets) if self.annotation_onsets is not None else 0
         }
         
         # Add statistics for motor channels
@@ -213,6 +271,22 @@ class Emulator:
         info['motor_channel_stats'] = motor_stats
         
         return info
+    
+    def get_all_annotations(self):
+        """Get all annotations with their timing information"""
+        if self.annotation_onsets is None:
+            return []
+        
+        annotations_list = []
+        for i, (onset, desc) in enumerate(zip(self.annotation_onsets, self.annotation_descriptions)):
+            annotations_list.append({
+                'index': i,
+                'onset_time': onset,
+                'sample_index': int(onset * self.sampling_frequency),
+                'description': desc
+            })
+        
+        return annotations_list
     
     def analyze_frequency_content(self, channel_name='C3', duration=5):
         """Analyze frequency content of a specific channel"""
@@ -266,13 +340,14 @@ class Emulator:
             print("Reset to beginning of file")
     
     def use_classification(self, prediction):
-        """Handle classification output"""
-        if prediction == 0:
-            print("Rest")
-        elif prediction == 1:
-            print("Motor Imagery Detected (Flex)")
-        else:
-            print("Extend")
+        # """Handle classification output"""
+        # if prediction == 0:
+        #     print("Rest")
+        # elif prediction == 1:
+        #     print("Motor Imagery Detected (Flex)")
+        # else:
+        #     print("Extend")
+        pass
     
     def disconnect(self):
         """Disconnect and cleanup"""
@@ -283,9 +358,9 @@ class Emulator:
 
 # Quick test function
 def test_enhanced_emulator():
-    """Test the enhanced emulator"""
-    print("Testing Enhanced Virtual Receiver")
-    print("=" * 50)
+    """Test the enhanced emulator with annotation detection"""
+    print("Testing Enhanced Virtual Receiver with Annotation Detection")
+    print("=" * 60)
     
     # Create emulator
     emulator = Emulator(fileName="MIT33", auto_scale=True, verbose=True)
@@ -297,7 +372,17 @@ def test_enhanced_emulator():
     info = emulator.get_data_info()
     print(f"\nData Information:")
     print(f"  Total duration: {info['total_duration']:.1f} seconds")
+    print(f"  Number of annotations: {info['n_annotations']}")
     print(f"  Scaling factor applied: {info['scaling_factor']:.6f}")
+    
+    # Show all annotations
+    all_annotations = emulator.get_all_annotations()
+    if all_annotations:
+        print(f"\nAll annotations in the data:")
+        for ann in all_annotations[:10]:  # Show first 10
+            print(f"  t={ann['onset_time']:.3f}s: '{ann['description']}'")
+        if len(all_annotations) > 10:
+            print(f"  ... and {len(all_annotations) - 10} more")
     
     # Analyze frequency content
     print(f"\nFrequency Analysis for C3:")
@@ -306,13 +391,15 @@ def test_enhanced_emulator():
         for band, power_info in freq_info['band_powers'].items():
             print(f"  {band:6s}: {power_info['relative_power']:5.1f}% of total power")
     
-    # Test data reading
-    print(f"\nReading 1 second of data...")
+    # Test data reading with annotation detection
+    print(f"\nReading 5 seconds of data (annotations will be detected automatically)...")
     chunks_read = 0
-    for i in range(50):  # 1 second at 50 chunks/second
+    for i in range(250):  # 5 seconds at 50 chunks/second
         data = emulator.get_data()
         if data is not None:
             chunks_read += 1
+        else:
+            break
     
     print(f"  Read {chunks_read} chunks successfully")
     

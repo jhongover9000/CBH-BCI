@@ -20,7 +20,7 @@ import time
 class ERDMonitorGUI:
     """GUI Monitor for ERD Detection System"""
     
-    def __init__(self, queue_in, system_ref=None):
+    def __init__(self, queue_in, system_ref=None, threshold=20):
         self.queue = queue_in
         self.system = system_ref
         
@@ -28,11 +28,16 @@ class ERDMonitorGUI:
         self.root = tk.Tk()
         self.root.title("BCI ERD Detection Monitor")
         self.root.geometry("1200x700")
+        self.threshold = threshold
         
         # Data storage for plots
         self.time_history = deque(maxlen=200)
         self.erd_history = {}
         self.baseline_power_history = {}
+
+        # Annotation tracking
+        self.annotation_markers = []  # Store annotation markers on plot
+        self.erd_detection_markers = []  # Store ERD detection markers
         
         # Initialize GUI elements
         self._create_gui()
@@ -87,6 +92,13 @@ class ERDMonitorGUI:
         
         self.stats_text = tk.Text(stats_frame, width=25, height=8, font=("Courier", 10))
         self.stats_text.pack()
+
+        # Annotation correlation frame
+        ann_frame = ttk.LabelFrame(left_panel, text="Annotation Correlation", padding="10")
+        ann_frame.pack(fill=tk.BOTH, expand=False, pady=5)
+        
+        self.ann_text = tk.Text(ann_frame, width=25, height=6, font=("Courier", 9))
+        self.ann_text.pack()
         
         # Controls frame
         control_frame = ttk.LabelFrame(left_panel, text="Controls", padding="10")
@@ -95,7 +107,7 @@ class ERDMonitorGUI:
         self.baseline_btn = ttk.Button(control_frame, text="Recalculate Baseline",
                                       command=self.recalculate_baseline)
         self.baseline_btn.pack(pady=5)
-        
+
         # Right panel - Displays
         right_panel = ttk.Frame(main_frame)
         right_panel.grid(row=0, column=1, rowspan=2, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -116,7 +128,7 @@ class ERDMonitorGUI:
         self.ax = self.fig.add_subplot(111)
         self.ax.set_xlabel('Time (s)')
         self.ax.set_ylabel('ERD (%)')
-        self.ax.set_ylim(-30, 80)
+        self.ax.set_ylim(-30, 100)
         self.ax.grid(True, alpha=0.3)
         
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
@@ -127,7 +139,7 @@ class ERDMonitorGUI:
         self.colors = ['blue', 'red', 'green', 'orange', 'purple']
         
         # Threshold line
-        self.threshold_line = self.ax.axhline(y=20, color='k', linestyle='--', 
+        self.threshold_line = self.ax.axhline(y=self.threshold, color='k', linestyle='--', 
                                              alpha=0.5, label='Threshold')
         
         # Preprocessing info frame
@@ -175,6 +187,10 @@ class ERDMonitorGUI:
         
         # Update statistics
         self._update_statistics(data)
+
+        # Update plot with annotations
+        if erd_values:
+            self._update_plot_with_annotations(data)
         
         # Update plot
         if erd_values:
@@ -191,8 +207,8 @@ class ERDMonitorGUI:
         self.erd_display.insert(tk.END, "-" * 40 + "\n")
         
         for ch, erd in erd_values.items():
-            status = "DETECT" if erd > 20 else "------"
-            marker = "***" if erd > 20 else "   "
+            status = "DETECT" if erd > self.threshold else "------"
+            marker = "***" if erd > self.threshold else "   "
             
             # Get baseline power if available
             if hasattr(self.system, 'erd_detector') and self.system.erd_detector.baseline_power is not None:
@@ -227,6 +243,104 @@ class ERDMonitorGUI:
         ]
         
         self.stats_text.insert(tk.END, "\n".join(stats_lines))
+        
+        # Update annotation correlation
+        self.ann_text.delete(1.0, tk.END)
+        
+        annotations = data.get('annotations', [])
+        erd_times = data.get('erd_detection_times', [])
+        
+        if annotations:
+            self.ann_text.insert(tk.END, f"Annotations: {len(annotations)}\n")
+            
+            # Show last few annotations with correlation
+            for ann in annotations[-3:]:  # Last 3 annotations
+                ann_time = ann['time']
+                desc_short = ann['description'].split('/')[-1]
+                
+                # Find closest ERD detection
+                if erd_times:
+                    closest_det = min(erd_times, key=lambda x: abs(x - ann_time))
+                    time_diff = closest_det - ann_time
+                    
+                    if abs(time_diff) < 2.0:
+                        self.ann_text.insert(tk.END, 
+                            f"{desc_short:8s} → ERD Δ{time_diff:+.1f}s\n")
+                    else:
+                        self.ann_text.insert(tk.END, 
+                            f"{desc_short:8s} → No ERD\n")
+                else:
+                    self.ann_text.insert(tk.END, 
+                        f"{desc_short:8s} → No ERD\n")
+                    
+    def _update_plot_with_annotations(self, data):
+        """Update ERD trend plot with annotation markers"""
+        # Store time
+        self.time_history.append(data.get('runtime', 0))
+        
+        # Store ERD values
+        for ch, erd in data['erd_values'].items():
+            if ch not in self.erd_history:
+                self.erd_history[ch] = deque(maxlen=200)
+            self.erd_history[ch].append(erd)
+        
+        # Update plot
+        if len(self.time_history) > 1:
+            times = list(self.time_history)
+            
+            # Update or create lines for each channel
+            for i, (ch, values) in enumerate(self.erd_history.items()):
+                if ch not in self.plot_lines:
+                    color = self.colors[i % len(self.colors)]
+                    line, = self.ax.plot([], [], color=color, linewidth=2, label=ch)
+                    self.plot_lines[ch] = line
+                
+                # Update line data
+                self.plot_lines[ch].set_data(times[-len(values):], list(values))
+            
+            # Clear old annotation markers
+            for marker in self.annotation_markers:
+                marker.remove()
+            self.annotation_markers.clear()
+            
+            # Clear old ERD detection markers
+            for marker in self.erd_detection_markers:
+                marker.remove()
+            self.erd_detection_markers.clear()
+            
+            # Add annotation markers
+            annotations = data.get('annotations', [])
+            for ann in annotations:
+                if times[0] <= ann['time'] <= times[-1]:  # Only show visible annotations
+                    # Draw vertical line
+                    marker = self.ax.axvline(x=ann['time'], color='purple', 
+                                           linestyle='--', alpha=0.7, linewidth=2)
+                    self.annotation_markers.append(marker)
+                    
+                    # Add text label
+                    desc_short = ann['description'].split('/')[-1]  # Shorten description
+                    text = self.ax.text(ann['time'], self.ax.get_ylim()[1]*0.9, 
+                                      desc_short, rotation=90, verticalalignment='bottom',
+                                      fontsize=8, color='purple')
+                    self.annotation_markers.append(text)
+            
+            # Add ERD detection markers
+            erd_times = data.get('erd_detection_times', [])
+            for det_time in erd_times:
+                if times[0] <= det_time <= times[-1]:  # Only show visible detections
+                    marker = self.ax.axvline(x=det_time, color='green', 
+                                           linestyle=':', alpha=0.5, linewidth=1)
+                    self.erd_detection_markers.append(marker)
+            
+            # Update axes
+            self.ax.set_xlim(max(0, times[-1] - 30), times[-1] + 1)
+            
+            # Update legend
+            if len(self.plot_lines) > 0:
+                self.ax.legend(loc='upper right')
+            
+            # Redraw
+            self.canvas.draw_idle()
     
     def _update_plot(self, data):
         """Update ERD trend plot"""
