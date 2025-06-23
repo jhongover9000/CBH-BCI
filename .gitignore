@@ -10,3 +10,4 @@ epoched/STvsRest.mat
 /data/epoched_no_asr
 results/20250422190952_consolidated_results.pkl
 results/20250504212508_consolidated_results.pkl
+global_scaler.pkl
