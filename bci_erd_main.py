@@ -1,6 +1,9 @@
 '''
-Complete streamlined BCI ERD System with all features integrated
-Supports both GUI and keyboard control modes
+BCI ERD SYSTEM MAIN
+
+Desc: Unified script for ERD detection system
+
+Joseph Hong
 '''
 
 import numpy as np
@@ -37,13 +40,18 @@ class BCIConfig:
     
     # ERD detection settings
     ERD_CHANNELS = ['C3','FC3', 'CP3', 'C1', 'C5', 'FC5', 'FC1', 'CP5', 'CP1']
-    ERD_BAND = (8, 20)  # mu band in Hz
+    ERD_BAND = (8, 30)  # mu band in Hz
     ERD_THRESHOLD = 60.0  # percent
     AVERAGE_ERDS = True  # average electrodes (vs individual ERD check)
     
+    # Moving average settings
+    BASELINE_MA_WINDOWS = 5      # number of windows to average for baseline
+    ERD_MA_WINDOWS = 3           # number of windows to average for ERD detection
+    USE_MOVING_AVERAGE = True    # enable moving average smoothing
+    
     # Baseline settings
     BASELINE_METHOD = 'robust'  # 'standard' or 'robust'
-    ROBUST_METHOD = 'adaptive'  # for robust baseline
+    ROBUST_METHOD = 'trimmed_mean'  # for robust baseline
     
     # Preprocessing settings
     USE_CAR = True  # Common Average Reference
@@ -204,7 +212,7 @@ class Preprocessor:
 # =============================================================
 
 class ERDDetectionSystem:
-    """ERD Detection with integrated preprocessing and robust baseline"""
+    """ERD Detection with integrated preprocessing, robust baseline, and moving average"""
     
     def __init__(self, sampling_freq, channel_names):
         self.fs = sampling_freq
@@ -220,8 +228,14 @@ class ERDDetectionSystem:
         self.baseline_power = None
         self.baseline_calculated = False
         
+        # Moving average buffers
+        self.baseline_ma_buffer = deque(maxlen=BCIConfig.BASELINE_MA_WINDOWS)
+        self.erd_ma_buffer = deque(maxlen=BCIConfig.ERD_MA_WINDOWS)
+        self.smoothed_baseline_power = None
+        
         # Statistics
         self.erd_history = deque(maxlen=100)
+        self.last_erd_values = {}
         
         # CSP+SVM detector (if enabled)
         self.csp_svm_detector = None
@@ -261,7 +275,7 @@ class ERDDetectionSystem:
                 self.calculate_baseline()
     
     def calculate_baseline(self, main_buffer=None, force=False):
-        """Calculate baseline power with robust method option"""
+        """Calculate baseline power with robust method option and moving average"""
         if not force and len(self.baseline_buffer) < self.baseline_buffer.maxlen:
             return False
         
@@ -287,15 +301,31 @@ class ERDDetectionSystem:
             # Calculate baseline power
             if BCIConfig.BASELINE_METHOD == 'robust':
                 # Use robust baseline calculation
-                self.baseline_power = self._calculate_robust_baseline(erd_data)
+                current_baseline_power = self._calculate_robust_baseline(erd_data)
             else:
                 # Standard baseline calculation
-                self.baseline_power = self.preprocessor.calculate_band_power(erd_data)
+                current_baseline_power = self.preprocessor.calculate_band_power(erd_data)
+            
+            # Apply moving average if enabled
+            if BCIConfig.USE_MOVING_AVERAGE:
+                self.baseline_ma_buffer.append(current_baseline_power)
+                
+                # Calculate smoothed baseline as average of buffer
+                if len(self.baseline_ma_buffer) > 0:
+                    self.smoothed_baseline_power = np.mean(list(self.baseline_ma_buffer), axis=0)
+                    self.baseline_power = self.smoothed_baseline_power
+                    
+                    if BCIConfig.VERBOSE:
+                        print(f"Baseline MA buffer: {len(self.baseline_ma_buffer)}/{BCIConfig.BASELINE_MA_WINDOWS}")
+            else:
+                self.baseline_power = current_baseline_power
             
             self.baseline_calculated = True
             
             if BCIConfig.VERBOSE:
                 print(f"Baseline calculated using {BCIConfig.BASELINE_METHOD} method")
+                if BCIConfig.USE_MOVING_AVERAGE:
+                    print(f"  Moving average applied over {len(self.baseline_ma_buffer)} windows")
                 for i, ch_idx in enumerate(self.erd_channel_indices):
                     print(f"  {self.channel_names[ch_idx]}: {self.baseline_power[i]:.6f}")
             
@@ -335,7 +365,7 @@ class ERDDetectionSystem:
             return np.mean(segment_powers, axis=0)
     
     def detect_erd(self, data):
-        """Detect ERD in operating window"""
+        """Detect ERD in operating window with moving average smoothing"""
         if not self.baseline_calculated or self.baseline_power is None:
             return False, {}, 0.0
         
@@ -346,9 +376,8 @@ class ERDDetectionSystem:
             # Calculate current power
             current_power = self.preprocessor.calculate_band_power(erd_data)
             
-            # Calculate ERD percentage
-            erd_values = {}
-            detected_channels = []
+            # Calculate ERD percentage for each channel
+            current_erd_values = {}
             
             for i, ch_idx in enumerate(self.erd_channel_indices):
                 if self.baseline_power[i] > 0:
@@ -356,19 +385,48 @@ class ERDDetectionSystem:
                                   self.baseline_power[i]) * 100
                     
                     ch_name = self.channel_names[ch_idx]
-                    erd_values[ch_name] = erd_percent
-                    
-                    if erd_percent > BCIConfig.ERD_THRESHOLD:
-                        detected_channels.append(ch_name)
+                    current_erd_values[ch_name] = erd_percent
             
-            # Calculate average ERD
-            avg_erd = np.mean(list(erd_values.values())) if erd_values else 0.0
-            erd_values['avg'] = avg_erd
+            # Calculate average ERD across channels
+            current_avg_erd = np.mean(list(current_erd_values.values())) if current_erd_values else 0.0
+            current_erd_values['avg'] = current_avg_erd
+            
+            # Apply moving average if enabled
+            if BCIConfig.USE_MOVING_AVERAGE:
+                # Add current values to moving average buffer
+                self.erd_ma_buffer.append(current_erd_values)
+                
+                # Calculate smoothed ERD values
+                smoothed_erd_values = {}
+                
+                if len(self.erd_ma_buffer) > 0:
+                    # Average each channel across the buffer
+                    for ch_name in current_erd_values.keys():
+                        values = [window.get(ch_name, 0) for window in self.erd_ma_buffer]
+                        smoothed_erd_values[ch_name] = np.mean(values)
+                    
+                    # Use smoothed values for detection
+                    erd_values = smoothed_erd_values
+                    avg_erd = smoothed_erd_values.get('avg', 0)
+                    
+                    if BCIConfig.VERBOSE and len(self.erd_ma_buffer) == BCIConfig.ERD_MA_WINDOWS:
+                        print(f"ERD MA: Current={current_avg_erd:.1f}%, Smoothed={avg_erd:.1f}%")
+                else:
+                    erd_values = current_erd_values
+                    avg_erd = current_avg_erd
+            else:
+                # No moving average, use current values
+                erd_values = current_erd_values
+                avg_erd = current_avg_erd
             
             # Store in history
             self.erd_history.append(avg_erd)
+            self.last_erd_values = erd_values
             
-            # Determine detection
+            # Determine detection based on configuration
+            detected_channels = [ch for ch, erd in erd_values.items() 
+                               if ch != 'avg' and erd > BCIConfig.ERD_THRESHOLD]
+            
             if BCIConfig.AVERAGE_ERDS:
                 detected = avg_erd > BCIConfig.ERD_THRESHOLD
             else:
@@ -378,10 +436,16 @@ class ERDDetectionSystem:
             if self.csp_svm_detector and self.csp_svm_detector.is_trained:
                 csp_pred, csp_conf = self.csp_svm_detector.predict(erd_data)
                 if csp_pred is not None:
-                    # Combine decisions
+                    # Combine CSP+SVM with ERD detection
+                    # SVM confidence (0-1) is weighted with ERD percentage (0-100)
                     combined_conf = 0.6 * csp_conf + 0.4 * (avg_erd / 100.0)
                     detected = combined_conf > 0.5
                     erd_values['csp_conf'] = csp_conf * 100
+                    erd_values['combined_conf'] = combined_conf * 100
+                    
+                    if BCIConfig.VERBOSE:
+                        print(f"Detection: ERD={avg_erd:.1f}%, SVM={csp_conf:.2f}, Combined={combined_conf:.2f}")
+                    
                     return detected, erd_values, combined_conf * 100
             
             return detected, erd_values, avg_erd
@@ -396,6 +460,9 @@ class ERDDetectionSystem:
         self.baseline_buffer.clear()
         self.baseline_power = None
         self.baseline_calculated = False
+        self.baseline_ma_buffer.clear()
+        self.erd_ma_buffer.clear()
+        self.smoothed_baseline_power = None
 
 
 # =============================================================
@@ -489,6 +556,9 @@ class BCISystem:
         print("  s - Print system status")
         print("  t - Adjust threshold (+5)")
         print("  g - Adjust threshold (-5)")
+        print("  a - Toggle moving average")
+        print("  + - Increase ERD MA windows")
+        print("  - - Decrease ERD MA windows")
         print("  0 - Start collecting REST data (CSP+SVM)")
         print("  1 - Start collecting MI data (CSP+SVM)")
         print("  9 - Stop collecting training data")
@@ -619,6 +689,15 @@ class BCISystem:
             elif key == 'g':
                 BCIConfig.ERD_THRESHOLD = max(10, BCIConfig.ERD_THRESHOLD - 5)
                 print(f"Threshold decreased to {BCIConfig.ERD_THRESHOLD}%")
+            elif key == 'a':
+                BCIConfig.USE_MOVING_AVERAGE = not BCIConfig.USE_MOVING_AVERAGE
+                print(f"Moving average {'enabled' if BCIConfig.USE_MOVING_AVERAGE else 'disabled'}")
+            elif key == '+':
+                BCIConfig.ERD_MA_WINDOWS = min(10, BCIConfig.ERD_MA_WINDOWS + 1)
+                print(f"ERD MA windows increased to {BCIConfig.ERD_MA_WINDOWS}")
+            elif key == '-':
+                BCIConfig.ERD_MA_WINDOWS = max(1, BCIConfig.ERD_MA_WINDOWS - 1)
+                print(f"ERD MA windows decreased to {BCIConfig.ERD_MA_WINDOWS}")
             elif key == '0' and BCIConfig.USE_CSP_SVM:
                 collection_mode = 'rest'
                 print("Collecting REST data...")
@@ -748,6 +827,16 @@ class BCISystem:
         print(f"ERD threshold: {BCIConfig.ERD_THRESHOLD}%")
         print(f"Detection count: {self.detection_count}")
         
+        # Moving average status
+        print(f"\nMoving Average:")
+        print(f"  Enabled: {BCIConfig.USE_MOVING_AVERAGE}")
+        if BCIConfig.USE_MOVING_AVERAGE:
+            print(f"  Baseline MA windows: {BCIConfig.BASELINE_MA_WINDOWS}")
+            print(f"  ERD MA windows: {BCIConfig.ERD_MA_WINDOWS}")
+            if self.erd_detector:
+                print(f"  Current baseline MA buffer: {len(self.erd_detector.baseline_ma_buffer)}")
+                print(f"  Current ERD MA buffer: {len(self.erd_detector.erd_ma_buffer)}")
+        
         if self.erd_detector:
             print(f"\nERD channels ({len(self.erd_detector.erd_channel_indices)}):")
             for idx in self.erd_detector.erd_channel_indices:
@@ -757,6 +846,13 @@ class BCISystem:
                 print("\nBaseline powers:")
                 for i, ch_idx in enumerate(self.erd_detector.erd_channel_indices):
                     print(f"  {self.ch_names[ch_idx]}: {self.erd_detector.baseline_power[i]:.6f}")
+            
+            # Show last ERD values if available
+            if hasattr(self.erd_detector, 'last_erd_values') and self.erd_detector.last_erd_values:
+                print("\nLast ERD values:")
+                for ch, erd in self.erd_detector.last_erd_values.items():
+                    if ch not in ['csp_conf', 'combined_conf']:
+                        print(f"  {ch}: {erd:.1f}%")
         
         print("="*50 + "\n")
     
@@ -868,6 +964,14 @@ def main():
     parser.add_argument('--window', type=float, default=BCIConfig.OPERATING_WINDOW_DURATION,
                        help="Operating window duration (seconds)")
     
+    # Moving average options
+    parser.add_argument('--no-ma', action='store_true',
+                       help="Disable moving average")
+    parser.add_argument('--baseline-ma', type=int, default=BCIConfig.BASELINE_MA_WINDOWS,
+                       help="Baseline moving average windows")
+    parser.add_argument('--erd-ma', type=int, default=BCIConfig.ERD_MA_WINDOWS,
+                       help="ERD moving average windows")
+    
     # Advanced options
     parser.add_argument('--csp-svm', action='store_true',
                        help="Enable CSP+SVM detection")
@@ -890,6 +994,9 @@ def main():
     BCIConfig.USE_CSP_SVM = args.csp_svm
     BCIConfig.BASELINE_METHOD = 'robust' if args.robust_baseline else 'standard'
     BCIConfig.VERBOSE = args.verbose
+    BCIConfig.USE_MOVING_AVERAGE = not args.no_ma
+    BCIConfig.BASELINE_MA_WINDOWS = args.baseline_ma
+    BCIConfig.ERD_MA_WINDOWS = args.erd_ma
     
     # Validate overlap
     if not 0 <= BCIConfig.WINDOW_OVERLAP < 1:
@@ -905,6 +1012,10 @@ def main():
     print(f"Window:            {BCIConfig.OPERATING_WINDOW_DURATION}s")
     print(f"Overlap:           {BCIConfig.WINDOW_OVERLAP*100}%")
     print(f"Baseline:          {BCIConfig.BASELINE_METHOD}")
+    print(f"Moving Average:    {'Enabled' if BCIConfig.USE_MOVING_AVERAGE else 'Disabled'}")
+    if BCIConfig.USE_MOVING_AVERAGE:
+        print(f"  Baseline MA:     {BCIConfig.BASELINE_MA_WINDOWS} windows")
+        print(f"  ERD MA:          {BCIConfig.ERD_MA_WINDOWS} windows")
     print(f"CSP+SVM:           {'Enabled' if BCIConfig.USE_CSP_SVM else 'Disabled'}")
     print("="*60 + "\n")
     

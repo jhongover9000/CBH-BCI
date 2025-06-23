@@ -148,6 +148,20 @@ class BCIGUI:
         
         self.threshold_label = ttk.Label(threshold_frame, text="60%")
         self.threshold_label.pack(side=tk.LEFT)
+        
+        # Moving average controls
+        ma_frame = ttk.LabelFrame(main_frame, text="Moving Average Settings", padding="10")
+        ma_frame.pack(fill=tk.X, pady=5)
+        
+        from bci_erd_main import BCIConfig
+        self.ma_enabled_var = tk.BooleanVar(value=BCIConfig.USE_MOVING_AVERAGE)
+        ttk.Checkbutton(ma_frame, text="Enable Moving Average", 
+                       variable=self.ma_enabled_var,
+                       command=self._toggle_ma).pack(anchor=tk.W)
+        
+        self.ma_status_label = ttk.Label(ma_frame, 
+                                        text=f"ERD MA: {BCIConfig.ERD_MA_WINDOWS} windows")
+        self.ma_status_label.pack(anchor=tk.W, pady=(5, 0))
     
     def _create_full_widgets(self):
         """Create full GUI with plotting"""
@@ -218,6 +232,30 @@ class BCIGUI:
         
         self.threshold_label = ttk.Label(settings_frame, text=f"{BCIConfig.ERD_THRESHOLD:.0f}%")
         self.threshold_label.grid(row=0, column=2)
+        
+        # Moving Average
+        ttk.Label(settings_frame, text="Moving Average:").grid(row=1, column=0, sticky=tk.W, pady=(10,0))
+        
+        self.ma_enabled_var = tk.BooleanVar(value=BCIConfig.USE_MOVING_AVERAGE)
+        ttk.Checkbutton(settings_frame, text="Enable", 
+                       variable=self.ma_enabled_var,
+                       command=self._toggle_ma).grid(row=1, column=1, sticky=tk.W, pady=(10,0))
+        
+        # MA Windows
+        ma_frame = ttk.Frame(settings_frame)
+        ma_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        
+        ttk.Label(ma_frame, text="ERD MA Windows:").pack(side=tk.LEFT, padx=(20,5))
+        self.erd_ma_var = tk.IntVar(value=BCIConfig.ERD_MA_WINDOWS)
+        self.erd_ma_spin = ttk.Spinbox(ma_frame, from_=1, to=10, textvariable=self.erd_ma_var,
+                                       width=5, command=self._update_ma_windows)
+        self.erd_ma_spin.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(ma_frame, text="Baseline MA Windows:").pack(side=tk.LEFT, padx=(20,5))
+        self.baseline_ma_var = tk.IntVar(value=BCIConfig.BASELINE_MA_WINDOWS)
+        self.baseline_ma_spin = ttk.Spinbox(ma_frame, from_=1, to=10, textvariable=self.baseline_ma_var,
+                                           width=5, command=self._update_ma_windows)
+        self.baseline_ma_spin.pack(side=tk.LEFT, padx=5)
         
         settings_frame.columnconfigure(1, weight=1)
         
@@ -354,6 +392,22 @@ class BCIGUI:
         if hasattr(self, 'threshold_line'):
             self.threshold_line.set_ydata([float(value), float(value)])
             self.canvas.draw_idle()
+    
+    def _toggle_ma(self):
+        """Toggle moving average"""
+        from bci_erd_main import BCIConfig
+        BCIConfig.USE_MOVING_AVERAGE = self.ma_enabled_var.get()
+        if hasattr(self, 'ma_status_label'):
+            status = f"ERD MA: {BCIConfig.ERD_MA_WINDOWS} windows" if BCIConfig.USE_MOVING_AVERAGE else "Disabled"
+            self.ma_status_label.config(text=status)
+    
+    def _update_ma_windows(self):
+        """Update moving average window sizes"""
+        from bci_erd_main import BCIConfig
+        if hasattr(self, 'erd_ma_var'):
+            BCIConfig.ERD_MA_WINDOWS = self.erd_ma_var.get()
+        if hasattr(self, 'baseline_ma_var'):
+            BCIConfig.BASELINE_MA_WINDOWS = self.baseline_ma_var.get()
     
     def start_detection(self):
         """Start ERD detection"""
