@@ -37,14 +37,12 @@ class EEGMarkerGUI:
         self.auto_participant_management = tk.BooleanVar(value=True)
 
         # Marker Values
-        self.session_start = 0
         self.baseline = 2
         self.motor_imagery = 3
         self.rest = 4
-        self.eval_start = 6
-        self.eval_yes = 7
-        self.eval_no = 8
-        self.session_end = 10
+        self.eval_start = 13
+        self.eval_yes = 14
+        self.eval_no = 15
 
         # Subject and session information
         self.subject_number = tk.StringVar(value="")
@@ -1277,26 +1275,77 @@ class EEGMarkerGUI:
             )
 
     def send_marker(self, marker_label):
-        """Send a marker through the serial port"""
+        """Send a marker through the serial port with nibble placement based on subject number
+        
+        For odd subject numbers: marker value is placed in the lower nibble (bits 0-3)
+        For even subject numbers: marker value is placed in the upper nibble (bits 4-7)
+        """
         try:
             if not self.serial_connection or not self.serial_connection.is_open:
                 self.log(f"Error: Cannot send marker '{marker_label}' - Serial connection not open")
                 return
             
-            # Send the marker as a string
-            marker_str = f"{marker_label}"
+            # Parse the marker value from the label
+            if isinstance(marker_label, str) and marker_label.startswith('0x'):
+                marker_value = int(marker_label, 16)
+            elif isinstance(marker_label, str) and marker_label.isdigit():
+                marker_value = int(marker_label)
+            elif isinstance(marker_label, int):
+                marker_value = marker_label
+            else:
+                # Try to convert to int, fallback to original behavior
+                try:
+                    marker_value = int(str(marker_label))
+                except ValueError:
+                    self.log(f"Warning: Could not parse marker value '{marker_label}', sending as string")
+                    marker_str = f"{marker_label}"
+                    self.serial_connection.write(marker_str.encode('utf-8'))
+                    
+                    # Store the original marker with timestamp
+                    marker_timestamp = time.time()
+                    self.markers.append((marker_label, marker_timestamp))
+                    
+                    if self.recording_start_time is not None:
+                        relative_time = marker_timestamp - self.recording_start_time
+                        self.log(f"Marker '{marker_label}' sent at {relative_time:.4f}s")
+                    else:
+                        self.log(f"Marker '{marker_label}' sent")
+                    return
+            
+            # Get subject number and determine nibble placement
+            try:
+                subject_num = int(self.subject_number.get().strip())
+                
+                if subject_num % 2 == 1:  # Odd subject - use lower nibble (bits 0-3)
+                    final_marker = marker_value & 0x0F  # Keep only lower 4 bits
+                    nibble_info = "lower nibble"
+                else:  # Even subject - use upper nibble (bits 4-7)
+                    final_marker = (marker_value & 0x0F) << 4  # Shift to upper 4 bits
+                    nibble_info = "upper nibble"
+                    
+                self.log(f"Subject {subject_num} ({'odd' if subject_num % 2 == 1 else 'even'}): "
+                        f"Original marker {marker_value} → Final marker {final_marker} "
+                        f"(0x{final_marker:02X} binary: {final_marker:08b}, {nibble_info})")
+                
+            except (ValueError, AttributeError):
+                self.log(f"Warning: Could not parse subject number '{self.subject_number.get()}', "
+                        f"using original marker value {marker_value}")
+                final_marker = marker_value
+            
+            # Send the marker as a string representation of the final value
+            marker_str = f"{final_marker}"
             self.serial_connection.write(marker_str.encode('utf-8'))
             
-            # Store the marker with timestamp
+            # Store the marker with timestamp (store the final marker value)
             marker_timestamp = time.time()
-            self.markers.append((marker_label, marker_timestamp))
+            self.markers.append((final_marker, marker_timestamp))
             
             # Calculate relative time if recording has started
             if self.recording_start_time is not None:
                 relative_time = marker_timestamp - self.recording_start_time
-                self.log(f"Marker '{marker_label}' sent at {relative_time:.4f}s")
+                self.log(f"Marker '{final_marker}' sent at {relative_time:.4f}s")
             else:
-                self.log(f"Marker '{marker_label}' sent")
+                self.log(f"Marker '{final_marker}' sent")
                 
         except Exception as e:
             self.log(f"Error sending marker '{marker_label}': {e}")
@@ -1482,7 +1531,7 @@ class EEGMarkerGUI:
         session_type = "POST" if self.is_post_assessment.get() else "PRE"
         
         self.log(f"Started {session_type} assessment for subject {subject} at {timestamp}")
-        self.send_marker(self.to_hex(self.session_start)) # Mark session start
+        # self.send_marker(self.to_hex(self.session_start)) # Mark session start
 
         self.update_instruction_text()
 
@@ -1494,7 +1543,7 @@ class EEGMarkerGUI:
             return
         self.running = False
         self.log("Stopping session...")
-        self.send_marker(self.to_hex(self.session_end)) # Mark session end
+        # self.send_marker(self.to_hex(self.session_end)) # Mark session end
 
         # Close the serial connection
         if self.serial_connection and self.serial_connection.is_open:
@@ -1688,9 +1737,6 @@ class EEGMarkerGUI:
         # Clear any previous cue
         self.update_cue("", "Evaluation")
         
-        # Send marker
-        self.send_marker(self.to_hex(self.eval_start))
-        
         # Store current activity type for the evaluation
         self.current_activity = activity_type
         
@@ -1699,6 +1745,9 @@ class EEGMarkerGUI:
         
         # Add a slight delay before showing eval screen to ensure transition is visible
         self.root.after(100, self.show_evaluation_screen)
+
+        # Send marker
+        self.send_marker(self.to_hex(self.eval_start))
         
         self.log("Evaluation phase started - waiting for Y/N keypress")
         
@@ -1727,14 +1776,8 @@ class EEGMarkerGUI:
         """Handle yes/no response during evaluation period."""
         if not self.waiting_for_response:
             return  # Prevent double responses
-            
-        # Calculate response time
-        response_time = time.time() - self.eval_start_time
         
-        # Hide evaluation screen
-        self.hide_evaluation_screen()
-        
-        # Log and store the response
+                # Log and store the response
         if response:
             self.log(f"Evaluation: YES (response time: {response_time:.2f}s)")
             self.send_marker(self.to_hex(self.eval_yes))
@@ -1742,6 +1785,12 @@ class EEGMarkerGUI:
             self.log(f"Evaluation: NO (response time: {response_time:.2f}s)")
             self.send_marker(self.to_hex(self.eval_no))
             
+        # Calculate response time
+        response_time = time.time() - self.eval_start_time
+        
+        # Hide evaluation screen
+        self.hide_evaluation_screen()
+        
         # Store result
         self.eval_results.append((
             self.current_trial, 
