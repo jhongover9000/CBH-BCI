@@ -1,0 +1,12 @@
+Subject,Session,Trial,Activity,Response,ResponseTime
+002,PRE,1,imagery,YES,3.7063
+002,PRE,2,rest,NO,1.2674
+002,PRE,3,rest,NO,1.3291
+002,PRE,4,imagery,NO,1.8710
+002,PRE,5,rest,NO,1.2085
+002,PRE,6,imagery,YES,0.9965
+002,PRE,7,imagery,NO,1.6908
+002,PRE,8,rest,NO,0.6957
+002,PRE,9,imagery,YES,0.8470
+002,PRE,10,rest,NO,2.0217
+002,PRE,11,imagery,YES,3.2898
