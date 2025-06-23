@@ -11,7 +11,7 @@ from scipy import signal
 data_dir = "./data/rawdata/cbh/"
 
 class Emulator:
-    def __init__(self, fileName="CBH0000", auto_scale=False, verbose=False):
+    def __init__(self, fileName="CBH0002", auto_scale=False, verbose=False):
         self.vhdr_file = f"{data_dir}{fileName}.vhdr"
         self.eeg_file = f"{data_dir}{fileName}.eeg"
         self.channel_count = 0

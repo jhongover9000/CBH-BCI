@@ -162,6 +162,19 @@ class BCIGUI:
         self.ma_status_label = ttk.Label(ma_frame, 
                                         text=f"ERD MA: {BCIConfig.ERD_MA_WINDOWS} windows")
         self.ma_status_label.pack(anchor=tk.W, pady=(5, 0))
+        
+        # Sliding baseline controls
+        baseline_frame = ttk.LabelFrame(main_frame, text="Baseline Settings", padding="10")
+        baseline_frame.pack(fill=tk.X, pady=5)
+        
+        self.sliding_enabled_var = tk.BooleanVar(value=BCIConfig.SLIDING_BASELINE)
+        ttk.Checkbutton(baseline_frame, text="Enable Sliding Baseline", 
+                       variable=self.sliding_enabled_var,
+                       command=self._toggle_sliding).pack(anchor=tk.W)
+        
+        self.sliding_status_label = ttk.Label(baseline_frame, 
+                                            text=f"Window: {BCIConfig.SLIDING_BASELINE_DURATION}s")
+        self.sliding_status_label.pack(anchor=tk.W, pady=(5, 0))
     
     def _create_full_widgets(self):
         """Create full GUI with plotting"""
@@ -256,6 +269,25 @@ class BCIGUI:
         self.baseline_ma_spin = ttk.Spinbox(ma_frame, from_=1, to=10, textvariable=self.baseline_ma_var,
                                            width=5, command=self._update_ma_windows)
         self.baseline_ma_spin.pack(side=tk.LEFT, padx=5)
+        
+        # Sliding Baseline
+        ttk.Label(settings_frame, text="Sliding Baseline:").grid(row=3, column=0, sticky=tk.W, pady=(10,0))
+        
+        self.sliding_enabled_var = tk.BooleanVar(value=BCIConfig.SLIDING_BASELINE)
+        ttk.Checkbutton(settings_frame, text="Enable", 
+                       variable=self.sliding_enabled_var,
+                       command=self._toggle_sliding).grid(row=3, column=1, sticky=tk.W, pady=(10,0))
+        
+        # Sliding duration
+        sliding_frame = ttk.Frame(settings_frame)
+        sliding_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        
+        ttk.Label(sliding_frame, text="Sliding Window:").pack(side=tk.LEFT, padx=(20,5))
+        self.sliding_duration_var = tk.DoubleVar(value=BCIConfig.SLIDING_BASELINE_DURATION)
+        self.sliding_spin = ttk.Spinbox(sliding_frame, from_=1, to=20, textvariable=self.sliding_duration_var,
+                                       width=5, increment=0.5, command=self._update_sliding_duration)
+        self.sliding_spin.pack(side=tk.LEFT, padx=5)
+        ttk.Label(sliding_frame, text="seconds").pack(side=tk.LEFT)
         
         settings_frame.columnconfigure(1, weight=1)
         
@@ -401,6 +433,14 @@ class BCIGUI:
             status = f"ERD MA: {BCIConfig.ERD_MA_WINDOWS} windows" if BCIConfig.USE_MOVING_AVERAGE else "Disabled"
             self.ma_status_label.config(text=status)
     
+    def _toggle_sliding(self):
+        """Toggle sliding baseline"""
+        from bci_erd_main import BCIConfig
+        BCIConfig.SLIDING_BASELINE = self.sliding_enabled_var.get()
+        if hasattr(self, 'sliding_status_label'):
+            status = f"Window: {BCIConfig.SLIDING_BASELINE_DURATION}s" if BCIConfig.SLIDING_BASELINE else "Disabled"
+            self.sliding_status_label.config(text=status)
+    
     def _update_ma_windows(self):
         """Update moving average window sizes"""
         from bci_erd_main import BCIConfig
@@ -408,6 +448,12 @@ class BCIGUI:
             BCIConfig.ERD_MA_WINDOWS = self.erd_ma_var.get()
         if hasattr(self, 'baseline_ma_var'):
             BCIConfig.BASELINE_MA_WINDOWS = self.baseline_ma_var.get()
+    
+    def _update_sliding_duration(self):
+        """Update sliding baseline duration"""
+        from bci_erd_main import BCIConfig
+        if hasattr(self, 'sliding_duration_var'):
+            BCIConfig.SLIDING_BASELINE_DURATION = self.sliding_duration_var.get()
     
     def start_detection(self):
         """Start ERD detection"""

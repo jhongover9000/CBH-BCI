@@ -40,7 +40,7 @@ class BCIConfig:
     
     # ERD detection settings
     ERD_CHANNELS = ['C3','FC3', 'CP3', 'C1', 'C5', 'FC5', 'FC1', 'CP5', 'CP1']
-    ERD_BAND = (8, 30)  # mu band in Hz
+    ERD_BAND = (8, 20)  # mu band in Hz
     ERD_THRESHOLD = 60.0  # percent
     AVERAGE_ERDS = True  # average electrodes (vs individual ERD check)
     
@@ -52,6 +52,8 @@ class BCIConfig:
     # Baseline settings
     BASELINE_METHOD = 'robust'  # 'standard' or 'robust'
     ROBUST_METHOD = 'trimmed_mean'  # for robust baseline
+    SLIDING_BASELINE = True      # Use sliding baseline that updates continuously
+    SLIDING_BASELINE_DURATION = 5.0  # seconds of data to use for sliding baseline
     
     # Preprocessing settings
     USE_CAR = True  # Common Average Reference
@@ -364,8 +366,34 @@ class ERDDetectionSystem:
         else:
             return np.mean(segment_powers, axis=0)
     
-    def detect_erd(self, data):
-        """Detect ERD in operating window with moving average smoothing"""
+    def detect_erd(self, data, main_buffer=None):
+        """Detect ERD in operating window with moving average smoothing and optional sliding baseline"""
+        # Use sliding baseline if enabled and main buffer provided
+        if BCIConfig.SLIDING_BASELINE and main_buffer is not None:
+            # Calculate baseline from recent data
+            sliding_samples = int(BCIConfig.SLIDING_BASELINE_DURATION * self.fs)
+            
+            if len(main_buffer) >= sliding_samples:
+                # Get recent data for baseline (excluding current window)
+                window_size = data.shape[1]
+                if len(main_buffer) > sliding_samples + window_size:
+                    # Get data from before the current window
+                    baseline_start = -(sliding_samples + window_size)
+                    baseline_end = -window_size
+                    recent_samples = list(main_buffer)[baseline_start:baseline_end]
+                else:
+                    # Use what we have, but exclude current window
+                    recent_samples = list(main_buffer)[:-window_size]
+                
+                if len(recent_samples) > self.fs:  # At least 1 second
+                    # Calculate sliding baseline
+                    baseline_data = np.array(recent_samples).T
+                    self.calculate_baseline(force=True, main_buffer=deque(recent_samples))
+                    
+                    if BCIConfig.VERBOSE:
+                        print(f"Sliding baseline updated using {len(recent_samples)/self.fs:.1f}s of data")
+        
+        # Check if we have a valid baseline
         if not self.baseline_calculated or self.baseline_power is None:
             return False, {}, 0.0
         
@@ -557,6 +585,7 @@ class BCISystem:
         print("  t - Adjust threshold (+5)")
         print("  g - Adjust threshold (-5)")
         print("  a - Toggle moving average")
+        print("  d - Toggle sliding baseline")
         print("  + - Increase ERD MA windows")
         print("  - - Decrease ERD MA windows")
         print("  0 - Start collecting REST data (CSP+SVM)")
@@ -632,7 +661,7 @@ class BCISystem:
                             self.erd_detector.csp_svm_detector.collect_training_data(erd_window, label)
                         
                         # Detect ERD
-                        detected, erd_values, confidence = self.erd_detector.detect_erd(window_data)
+                        detected, erd_values, confidence = self.erd_detector.detect_erd(window_data, self.main_buffer)
                         
                         if detected:
                             self.detection_count += 1
@@ -692,6 +721,9 @@ class BCISystem:
             elif key == 'a':
                 BCIConfig.USE_MOVING_AVERAGE = not BCIConfig.USE_MOVING_AVERAGE
                 print(f"Moving average {'enabled' if BCIConfig.USE_MOVING_AVERAGE else 'disabled'}")
+            elif key == 'd':
+                BCIConfig.SLIDING_BASELINE = not BCIConfig.SLIDING_BASELINE
+                print(f"Sliding baseline {'enabled' if BCIConfig.SLIDING_BASELINE else 'disabled'}")
             elif key == '+':
                 BCIConfig.ERD_MA_WINDOWS = min(10, BCIConfig.ERD_MA_WINDOWS + 1)
                 print(f"ERD MA windows increased to {BCIConfig.ERD_MA_WINDOWS}")
@@ -837,6 +869,11 @@ class BCISystem:
                 print(f"  Current baseline MA buffer: {len(self.erd_detector.baseline_ma_buffer)}")
                 print(f"  Current ERD MA buffer: {len(self.erd_detector.erd_ma_buffer)}")
         
+        print(f"\nSliding Baseline:")
+        print(f"  Enabled: {BCIConfig.SLIDING_BASELINE}")
+        if BCIConfig.SLIDING_BASELINE:
+            print(f"  Window duration: {BCIConfig.SLIDING_BASELINE_DURATION}s")
+        
         if self.erd_detector:
             print(f"\nERD channels ({len(self.erd_detector.erd_channel_indices)}):")
             for idx in self.erd_detector.erd_channel_indices:
@@ -977,6 +1014,10 @@ def main():
                        help="Enable CSP+SVM detection")
     parser.add_argument('--robust-baseline', action='store_true',
                        help="Use robust baseline calculation")
+    parser.add_argument('--sliding-baseline', action='store_true', default=BCIConfig.SLIDING_BASELINE,
+                       help="Use sliding baseline that updates continuously")
+    parser.add_argument('--sliding-duration', type=float, default=BCIConfig.SLIDING_BASELINE_DURATION,
+                       help="Duration for sliding baseline (seconds)")
     parser.add_argument('--verbose', action='store_true',
                        help="Verbose output")
     
@@ -997,6 +1038,8 @@ def main():
     BCIConfig.USE_MOVING_AVERAGE = not args.no_ma
     BCIConfig.BASELINE_MA_WINDOWS = args.baseline_ma
     BCIConfig.ERD_MA_WINDOWS = args.erd_ma
+    BCIConfig.SLIDING_BASELINE = args.sliding_baseline
+    BCIConfig.SLIDING_BASELINE_DURATION = args.sliding_duration
     
     # Validate overlap
     if not 0 <= BCIConfig.WINDOW_OVERLAP < 1:
@@ -1012,6 +1055,8 @@ def main():
     print(f"Window:            {BCIConfig.OPERATING_WINDOW_DURATION}s")
     print(f"Overlap:           {BCIConfig.WINDOW_OVERLAP*100}%")
     print(f"Baseline:          {BCIConfig.BASELINE_METHOD}")
+    if BCIConfig.SLIDING_BASELINE:
+        print(f"  Sliding:         Yes ({BCIConfig.SLIDING_BASELINE_DURATION}s window)")
     print(f"Moving Average:    {'Enabled' if BCIConfig.USE_MOVING_AVERAGE else 'Disabled'}")
     if BCIConfig.USE_MOVING_AVERAGE:
         print(f"  Baseline MA:     {BCIConfig.BASELINE_MA_WINDOWS} windows")
