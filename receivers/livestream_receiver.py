@@ -92,7 +92,7 @@ class LivestreamReceiver:
         self.channel_count, self.sampling_interval_us = unpack('<Ld', rawdata[:12])
         self.resolutions = [unpack('<d', rawdata[12 + i * 8:20 + i * 8])[0] for i in range(self.channel_count)]
         self.channel_names = self.split_string(rawdata[12 + 8 * self.channel_count:])
-        self.sampling_frequency = (1 / self.sampling_interval_us) * 1_000_000
+        self.sampling_frequency = (1 / self.sampling_interval_us) * 1000000
         ch_types = ["eeg"] * self.channel_count
         self.info = mne.create_info(self.channel_names, ch_types=ch_types, sfreq=self.sampling_frequency)
         self.info.set_montage("standard_1020")
