@@ -11,14 +11,14 @@ from scipy import signal
 data_dir = "./data/rawdata/cbh/"
 
 class Emulator:
-    def __init__(self, fileName="CBH0002", auto_scale=False, verbose=False):
+    def __init__(self, fileName="CBH0000", auto_scale=False, verbose=False):
         self.vhdr_file = f"{data_dir}{fileName}.vhdr"
         self.eeg_file = f"{data_dir}{fileName}.eeg"
         self.channel_count = 0
         self.sampling_frequency = 0
         self.sampling_interval_us = 0
         self.channel_names = []
-        self.latency = 0.004
+        self.latency = 0.00
         self.chunk_size = None
         self.current_index = 0
         self.raw_data = None
@@ -217,8 +217,8 @@ class Emulator:
         
         # Check if we've reached the end
         if self.current_index >= total_samples:
-            if self.verbose:
-                print("End of file reached")
+            # if self.verbose:
+                # print("End of file reached")
             return None
         
         chunk_end = min(self.current_index + self.chunk_size, total_samples)

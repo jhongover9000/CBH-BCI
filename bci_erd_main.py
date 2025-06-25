@@ -6,6 +6,13 @@ Desc: Unified script for ERD detection system
 Joseph Hong
 '''
 
+'''
+bci_system_complete.py
+---------------------
+Complete streamlined BCI ERD System with all features integrated
+Supports both GUI and keyboard control modes
+'''
+
 import numpy as np
 import time
 from datetime import datetime
@@ -33,27 +40,28 @@ class BCIConfig:
     """Central configuration for BCI ERD system"""
     
     # Buffer settings
-    MAIN_BUFFER_DURATION = 30.0      # seconds
-    BASELINE_BUFFER_DURATION = 20.0  # seconds (≤ main buffer)
-    OPERATING_WINDOW_DURATION = 1.0  # seconds
+    MAIN_BUFFER_DURATION = 20.0      # seconds
+    BASELINE_BUFFER_DURATION = 5.0  # seconds (≤ main buffer)
+    OPERATING_WINDOW_DURATION = 2.0  # seconds
     WINDOW_OVERLAP = 0.5            # overlap fraction (0.5 = 50% overlap)
     
     # ERD detection settings
     ERD_CHANNELS = ['C3','FC3', 'CP3', 'C1', 'C5', 'FC5', 'FC1', 'CP5', 'CP1']
+    # ERD_CHANNELS = ['C3']
     ERD_BAND = (8, 20)  # mu band in Hz
-    ERD_THRESHOLD = 60.0  # percent
+    ERD_THRESHOLD = 20.0  # percent
     AVERAGE_ERDS = True  # average electrodes (vs individual ERD check)
     
     # Moving average settings
-    BASELINE_MA_WINDOWS = 5      # number of windows to average for baseline
-    ERD_MA_WINDOWS = 3           # number of windows to average for ERD detection
+    BASELINE_MA_WINDOWS = 1      # number of windows to average for baseline
+    ERD_MA_WINDOWS = 5           # number of windows to average for ERD detection
     USE_MOVING_AVERAGE = True    # enable moving average smoothing
     
     # Baseline settings
     BASELINE_METHOD = 'robust'  # 'standard' or 'robust'
     ROBUST_METHOD = 'trimmed_mean'  # for robust baseline
-    SLIDING_BASELINE = True      # Use sliding baseline that updates continuously
-    SLIDING_BASELINE_DURATION = 5.0  # seconds of data to use for sliding baseline
+    SLIDING_BASELINE = True     # Use sliding baseline that updates continuously (off by default)
+    SLIDING_BASELINE_DURATION = 2.0  # seconds of data to use for sliding baseline
     
     # Preprocessing settings
     USE_CAR = True  # Common Average Reference
@@ -80,6 +88,11 @@ class BCIConfig:
     USE_CSP_SVM = False
     AUTO_TRAIN_CSP = True
     CSP_MULTIBAND = True
+    AUTO_TRAIN_ANNOTATIONS = False  # Auto-train from livestream annotations
+    TRAINING_ANNOTATIONS = {
+        'rest': ['Stimulus/S  4', 'S  4'],
+        'mi': ['Stimulus/S  3', 'S  3']
+    }
 
 
 # =============================================================
@@ -249,7 +262,7 @@ class ERDDetectionSystem:
         indices = []
         for target in BCIConfig.ERD_CHANNELS:
             for i, ch_name in enumerate(self.channel_names):
-                if target in ch_name:
+                if target == ch_name:
                     indices.append(i)
                     break
         
@@ -264,7 +277,8 @@ class ERDDetectionSystem:
         self.csp_svm_detector = CSPSVMDetector(
             fs=self.fs,
             n_channels=len(self.erd_channel_indices),
-            use_multiband=BCIConfig.CSP_MULTIBAND
+            use_multiband=BCIConfig.CSP_MULTIBAND,
+            autotrain = BCIConfig.AUTO_TRAIN_CSP
         )
     
     def add_to_baseline(self, data):
@@ -388,7 +402,7 @@ class ERDDetectionSystem:
                 if len(recent_samples) > self.fs:  # At least 1 second
                     # Calculate sliding baseline
                     baseline_data = np.array(recent_samples).T
-                    self.calculate_baseline(force=True, main_buffer=deque(recent_samples))
+                    self.calculate_baseline(force=True, main_buffer=deque(baseline_data))
                     
                     if BCIConfig.VERBOSE:
                         print(f"Sliding baseline updated using {len(recent_samples)/self.fs:.1f}s of data")
@@ -437,8 +451,8 @@ class ERDDetectionSystem:
                     erd_values = smoothed_erd_values
                     avg_erd = smoothed_erd_values.get('avg', 0)
                     
-                    if BCIConfig.VERBOSE and len(self.erd_ma_buffer) == BCIConfig.ERD_MA_WINDOWS:
-                        print(f"ERD MA: Current={current_avg_erd:.1f}%, Smoothed={avg_erd:.1f}%")
+                    # if BCIConfig.VERBOSE and len(self.erd_ma_buffer) == BCIConfig.ERD_MA_WINDOWS:
+                    #     print(f"ERD MA: Current={current_avg_erd:.1f}%, Smoothed={avg_erd:.1f}%")
                 else:
                     erd_values = current_erd_values
                     avg_erd = current_avg_erd
@@ -466,13 +480,14 @@ class ERDDetectionSystem:
                 if csp_pred is not None:
                     # Combine CSP+SVM with ERD detection
                     # SVM confidence (0-1) is weighted with ERD percentage (0-100)
-                    combined_conf = 0.6 * csp_conf + 0.4 * (avg_erd / 100.0)
-                    detected = combined_conf > 0.5
+                    combined_conf = ( (0.6 * (csp_conf)) + (0.4 * (avg_erd/100) ) )
+                    combined_conf = csp_conf
+                    detected = combined_conf > 0.7
                     erd_values['csp_conf'] = csp_conf * 100
                     erd_values['combined_conf'] = combined_conf * 100
                     
-                    if BCIConfig.VERBOSE:
-                        print(f"Detection: ERD={avg_erd:.1f}%, SVM={csp_conf:.2f}, Combined={combined_conf:.2f}")
+                    # if BCIConfig.VERBOSE:
+                    #     print(f"Detection: ERD={((avg_erd)):.1f}%, SVM={csp_conf:.2f}, Combined={combined_conf:.2f}")
                     
                     return detected, erd_values, combined_conf * 100
             
@@ -558,6 +573,12 @@ class BCISystem:
         # Initialize ERD detector
         self.erd_detector = ERDDetectionSystem(self.fs, self.ch_names)
         
+        # Auto-training setup
+        if BCIConfig.AUTO_TRAIN_ANNOTATIONS and BCIConfig.USE_CSP_SVM:
+            print("\nAuto-training from annotations enabled:")
+            print(f"  REST: {', '.join(BCIConfig.TRAINING_ANNOTATIONS['rest'])}")
+            print(f"  MI: {', '.join(BCIConfig.TRAINING_ANNOTATIONS['mi'])}")
+        
         print("Initialization complete!")
         
         # Print keyboard controls if enabled
@@ -591,6 +612,7 @@ class BCISystem:
         print("  0 - Start collecting REST data (CSP+SVM)")
         print("  1 - Start collecting MI data (CSP+SVM)")
         print("  9 - Stop collecting training data")
+        print("  u - Toggle auto-training from annotations")
         print("  p - Print training data status")
         print("  m - Save CSP+SVM model")
         print("  l - Load CSP+SVM model")
@@ -660,13 +682,57 @@ class BCISystem:
                             label = 0 if collection_mode == 'rest' else 1
                             self.erd_detector.csp_svm_detector.collect_training_data(erd_window, label)
                         
+                        # Auto-train from annotations if enabled
+                        elif BCIConfig.AUTO_TRAIN_ANNOTATIONS and BCIConfig.USE_CSP_SVM:
+                            if self.annotations and self.erd_detector.csp_svm_detector:
+                                # Check recent annotations
+                                current_time = self.receiver.current_index / self.fs
+                                for ann in self.annotations[-3:]:  # Check last 5 annotations
+                                    ann_time = ann['time']
+                                    print(f"{ann_time}:{current_time}")
+                                    # If annotation is 0.5-1.5 seconds before current window
+                                    if current_time - 4 < ann_time < current_time:
+                                        desc = ann['description']
+                                        erd_window = window_data[self.erd_detector.erd_channel_indices, :]
+                                        
+                                        # Check if MI annotation
+                                        for mi_ann in BCIConfig.TRAINING_ANNOTATIONS['mi']:
+                                            if mi_ann in desc:
+                                                self.erd_detector.csp_svm_detector.collect_training_data(erd_window, 1)
+                                                if BCIConfig.VERBOSE:
+                                                    print(f"AUTO-TRAIN: MI sample from '{desc}'")
+                                                break
+                                    # If annotation is 0.5-1.5 seconds before current window
+                                    if current_time - 4 < ann_time < current_time:
+                                        desc = ann['description']
+                                        erd_window = window_data[self.erd_detector.erd_channel_indices, :]
+                                        # Check if REST annotation
+                                        for rest_ann in BCIConfig.TRAINING_ANNOTATIONS['rest']:
+                                            if rest_ann in desc:
+                                                self.erd_detector.csp_svm_detector.collect_training_data(erd_window, 0)
+                                                if BCIConfig.VERBOSE:
+                                                    print(f"AUTO-TRAIN: REST sample from '{desc}'")
+                                                break
+                                        
+                                # Check if ready to auto-train
+                                if BCIConfig.AUTO_TRAIN_CSP and not self.erd_detector.csp_svm_detector.is_trained:
+                                    detector = self.erd_detector.csp_svm_detector
+                                    if (len(detector.training_data['rest']) >= 20 and 
+                                        len(detector.training_data['mi']) >= 20):
+                                        print("\nAuto-training CSP+SVM model...")
+                                        if detector.train():
+                                            print("Auto-training successful!")
+                                            detector.save_model(f"{time.time() - self.session_start_time}.pkl")
+                                            # Re-integrate with detection
+                                            self._integrate_csp_svm_detection()
+                        
                         # Detect ERD
                         detected, erd_values, confidence = self.erd_detector.detect_erd(window_data, self.main_buffer)
                         
                         if detected:
                             self.detection_count += 1
-                            current_runtime = time.time() - self.session_start_time
-                            self.erd_detection_times.append(current_runtime)
+                            current_time = self.receiver.current_index / self.fs
+                            self.erd_detection_times.append(current_time)
                             
                             if BCIConfig.BROADCAST_ENABLED:
                                 self.receiver.use_classification(1)
@@ -739,6 +805,10 @@ class BCISystem:
             elif key == '9':
                 collection_mode = None
                 print("Stopped collecting")
+            elif key == 'u' and BCIConfig.USE_CSP_SVM:
+                BCIConfig.AUTO_TRAIN_ANNOTATIONS = not BCIConfig.AUTO_TRAIN_ANNOTATIONS
+                status = "enabled" if BCIConfig.AUTO_TRAIN_ANNOTATIONS else "disabled"
+                print(f"Auto-training from annotations {status}")
             elif key == 'p' and BCIConfig.USE_CSP_SVM:
                 self._print_training_status()
             elif key == 'm' and BCIConfig.USE_CSP_SVM:
@@ -802,7 +872,8 @@ class BCISystem:
             else:
                 # Verbose display
                 erd_str = " | ".join([f"{ch}:{erd:.1f}%" for ch, erd in erd_values.items() if ch != 'avg'])
-                print(f"[{runtime:6.1f}s] {erd_str} | {status}")
+                if detected:
+                    print(f"[{runtime:6.1f}s] {erd_str} | {status}")
         
         # GUI update
         if self.gui_queue:
@@ -902,11 +973,25 @@ class BCISystem:
             print(f"  MI: {len(detector.training_data['mi'])} windows")
             print(f"  Model trained: {detector.is_trained}")
             
+            if detector.is_trained and hasattr(detector, 'band_performances'):
+                print("\nBand performances:")
+                for band, score in detector.band_performances.items():
+                    print(f"  {band}: {score:.3f}")
+            
             if BCIConfig.AUTO_TRAIN_CSP and not detector.is_trained:
                 if (len(detector.training_data['rest']) >= 20 and 
                     len(detector.training_data['mi']) >= 20):
                     print("Auto-training CSP+SVM...")
                     detector.train()
+    
+    def _integrate_csp_svm_detection(self):
+        """Integrate CSP+SVM detection with ERD system"""
+        if not self.erd_detector.csp_svm_detector:
+            return
+        
+        # The detect_erd method already handles CSP+SVM integration
+        # This method is called after training to ensure integration is active
+        print("CSP+SVM detection integrated with ERD system")
     
     def _save_csp_model(self):
         """Save CSP+SVM model"""
@@ -1012,9 +1097,13 @@ def main():
     # Advanced options
     parser.add_argument('--csp-svm', action='store_true',
                        help="Enable CSP+SVM detection")
+    parser.add_argument('--auto-train', action='store_true',
+                       help="Enable automatic training from annotations")
+    parser.add_argument('--multiband', action='store_true', default=BCIConfig.CSP_MULTIBAND,
+                       help="Use multiband CSP analysis")
     parser.add_argument('--robust-baseline', action='store_true',
                        help="Use robust baseline calculation")
-    parser.add_argument('--sliding-baseline', action='store_true', default=BCIConfig.SLIDING_BASELINE,
+    parser.add_argument('--sliding-baseline', action='store_true',
                        help="Use sliding baseline that updates continuously")
     parser.add_argument('--sliding-duration', type=float, default=BCIConfig.SLIDING_BASELINE_DURATION,
                        help="Duration for sliding baseline (seconds)")
@@ -1033,6 +1122,8 @@ def main():
     BCIConfig.WINDOW_OVERLAP = args.overlap
     BCIConfig.OPERATING_WINDOW_DURATION = args.window
     BCIConfig.USE_CSP_SVM = args.csp_svm
+    BCIConfig.AUTO_TRAIN_ANNOTATIONS = args.auto_train
+    BCIConfig.CSP_MULTIBAND = args.multiband
     BCIConfig.BASELINE_METHOD = 'robust' if args.robust_baseline else 'standard'
     BCIConfig.VERBOSE = args.verbose
     BCIConfig.USE_MOVING_AVERAGE = not args.no_ma
@@ -1062,6 +1153,9 @@ def main():
         print(f"  Baseline MA:     {BCIConfig.BASELINE_MA_WINDOWS} windows")
         print(f"  ERD MA:          {BCIConfig.ERD_MA_WINDOWS} windows")
     print(f"CSP+SVM:           {'Enabled' if BCIConfig.USE_CSP_SVM else 'Disabled'}")
+    if BCIConfig.USE_CSP_SVM:
+        print(f"  Auto-train:      {'Yes' if BCIConfig.AUTO_TRAIN_ANNOTATIONS else 'No'}")
+        print(f"  Multiband:       {'Yes' if BCIConfig.CSP_MULTIBAND else 'No'}")
     print("="*60 + "\n")
     
     # Create and run system

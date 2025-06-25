@@ -19,11 +19,12 @@ from collections import deque
 class SimpleCSP:
     """Simplified CSP implementation that actually works"""
     
-    def __init__(self, n_components=4):
+    def __init__(self, n_components=4, autotrain=False):
         self.n_components = n_components
         self.filters_ = None
         self.mean_ = None
         self.std_ = None
+        self.autotrain = autotrain
         
     def fit(self, X_rest, X_mi):
         """
@@ -164,10 +165,11 @@ class MultiFrequencyCSP:
 class CSPSVMDetector:
     """Complete CSP+SVM detection system"""
     
-    def __init__(self, fs, n_channels, use_multiband=True):
+    def __init__(self, fs, n_channels, use_multiband=True, autotrain = False):
         self.fs = fs
         self.n_channels = n_channels
         self.use_multiband = use_multiband
+        self.autotrain = autotrain
         
         # Define frequency bands
         if use_multiband:
@@ -201,11 +203,12 @@ class CSPSVMDetector:
             self.training_data['mi'].append(window_data)
             
         # Check if we have enough data to train
-        if (len(self.training_data['rest']) >= 20 and 
-            len(self.training_data['mi']) >= 20 and 
-            not self.is_trained):
-            print("\n🎯 Sufficient training data collected. Training CSP+SVM...")
-            self.train()
+        # if self.autotrain:
+        #     if (len(self.training_data['rest']) >= 20 and 
+        #         len(self.training_data['mi']) >= 20 and 
+        #         not self.is_trained):
+        #         print("\n🎯 Sufficient training data collected. Training CSP+SVM...")
+        #         self.train()
     
     def train(self):
         """Train CSP and SVM on collected data"""
@@ -250,6 +253,8 @@ class CSPSVMDetector:
         except Exception as e:
             print(f"  ✗ Training failed: {e}")
             self.is_trained = False
+
+        return self.is_trained
     
     def predict(self, window_data):
         """Predict using CSP+SVM"""
