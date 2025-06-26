@@ -59,7 +59,11 @@ class EEGMarkerGUI:
 
         self.total_trials = tk.IntVar(value=40)
 
-        self.rest_type = "fixation" # options: text (read neutral word), shape (complex shape/image), fixation (big fixation cue) 
+        self.rest_type = "text" # options: text (read neutral word), shape (complex shape/image), fixation (big fixation cue) 
+        self.rest_text = ["Table", "Chair", "Door", "Window", "Book", "Pencil",
+                            "Street", "Building", "Cloud", "Water", "Tree", "Stone",
+                            "Corner", "Box", "Glass"]
+
 
         # Minimum baseline duration (in seconds) for randomization
         self.min_baseline_duration = 2.5
@@ -106,7 +110,10 @@ class EEGMarkerGUI:
 
         # Questions and Instructions
         self.imagery_question = "Did you imagine the motor movement?"
-        self.rest_question = "Were you able to maintain a resting state?"
+        if(self.rest_type == "fixation"):
+            self.rest_question = "Were you able to maintain a resting state?"
+        elif self.rest_type == "text":
+            self.rest_question = "Were you able to maintain fixation?"
         self.instructions = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Blank Screen :  Rest\n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
         self.show_instructions = True
 
@@ -732,6 +739,8 @@ class EEGMarkerGUI:
         try:
             # Update the text stimulus
             if self.cue_text:
+
+
 
                 # Set the text
                 self.cue_text.setText(symbol)
@@ -1475,9 +1484,9 @@ class EEGMarkerGUI:
         is_pre_assessment = not self.is_post_assessment.get()
         
         if is_pre_assessment:
-            self.instruction = "Pre-Training Imagery Assessment.\n\n\n\nAfter a baseline period, there will be a beep cue and depending on the visual cue presented, you will need to perform a different task. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Text : Read the text silently. \n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
+            self.instruction = "Pre-Training Motor Imagery Assessment.\n\n\n\nAfter a baseline period, there will be a beep cue and depending on the visual cue presented, you will need to perform a different task. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Text : Read the text silently. \n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
         else:
-            self.instruction = "Post-Training Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Blank Screen : Rest\n\nPlease let the experimenter know when you are ready to begin."
+            self.instruction = "Post-Training Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Blank Screen : Rest\n\nPlease let the experimenter know when you are ready to begin."
         
         # Update the stimulus if it exists
         if hasattr(self, 'instruction_stim'):
@@ -1767,9 +1776,11 @@ class EEGMarkerGUI:
         else: # activity == 'rest'
 
             if self.rest_type == 'text':
-                self.update_cue("Rest", "Rest")
-            elif self.rest_type == 'fixation':
-                self.update_cue("+", "Rest")
+                word = self.select_rest_text(self.previous_word)
+                self.update_cue("Rest", "")
+            elif self.rest_type == 'shape':
+                self.update_cue("", "Rest")
+            self.update_cue("", "Rest") # Blank screen for rest
             marker_start = self.rest
             duration = self.rest_duration.get()
             self.log(f"Phase: Rest ({duration} s)")
@@ -1778,6 +1789,20 @@ class EEGMarkerGUI:
         
         # Schedule evaluation phase
         self.root.after(duration * 1000, self.start_evaluation_phase, activity)
+
+    def select_rest_text(self, previous_word):
+        if previous_word is None:
+            # Select a new word randomly from the list
+            word = random.choice(self.rest_texts)
+        else:
+            # Select a new word that is different from the previous one
+            available_words = [w for w in self.rest_texts if w != previous_word]
+            if not available_words:
+                self.log("Warning: No available rest words left to select")
+                return None
+            word = random.choice(available_words)
+        self.previous_word = word
+        self.log(f"Selected rest word: {word}")
 
     def start_evaluation_phase(self, activity_type):
         """Start the evaluation phase after an activity."""

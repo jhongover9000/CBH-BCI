@@ -1,0 +1,314 @@
+%%%% Time-Frequency Analysis using Morlet Wavelet
+%%%% Including dB conversion and topography plotting
+%%%% Conditions: MI and Rest
+%%%% Time of interest: 0-2000ms with 10 time bins
+
+clear all;
+close all;
+clc;
+
+%% Parameters
+expTitle = "TEST_REST";
+nSubject = 1;
+nChannels = 60;
+SR = 250;  % Sampling rate
+
+% Define conditions
+events = {'MI', 'Rest'};
+nEvents = length(events);
+
+% Path to epoched data
+eegset_dir = './epoched/';
+
+% Frequency parameters
+min_freq = 2;
+max_freq = 80;
+num_frex = max_freq - min_freq;
+frex = logspace(log10(min_freq), log10(max_freq), num_frex);
+
+% Wavelet parameters
+range_cycles = [2 12];
+s = logspace(log10(range_cycles(1)), log10(range_cycles(2)), num_frex) ./ (2*pi*frex);
+wavtime = -2:1/SR:2;
+half_wave = (length(wavtime)-1)/2;
+
+% Time parameters
+epoch_period = [-2 3];  % -2 to 3 seconds
+nTimes = diff(epoch_period) * SR;
+times = epoch_period(1)*SR:epoch_period(2)*SR; % -2000 to 2999 ms
+
+% Baseline for dB conversion
+baseline_window = [-0.5*SR 0];  % -500ms to 0ms
+baseidx = reshape(dsearchn(times', baseline_window(:)), [], 2);
+
+%% Initialize output matrices
+fprintf('Initializing output matrices...\n');
+tf_MI = zeros(nSubject, length(frex), nTimes, nChannels, 'single');
+tf_Rest = zeros(nSubject, length(frex), nTimes, nChannels, 'single');
+
+%% Time-Frequency Analysis
+fprintf('Starting time-frequency analysis...\n');
+
+for sub = 1:nSubject
+    fprintf('\nProcessing Subject %d/%d\n', sub, nSubject);
+    
+    % Process each condition
+    for evt = 1:nEvents
+        
+        % Load epoched data
+        eeg_file = sprintf('%s_%d_%s.set', expTitle, sub, events{evt});
+        filepath = fullfile(eegset_dir, eeg_file);
+        
+        if ~exist(filepath, 'file')
+            fprintf('Warning: File not found for subject %d, condition %s\n', sub, events{evt});
+            continue;
+        end
+        
+        EEG = pop_loadset('filename', eeg_file, 'filepath', eegset_dir);
+        fprintf('  Processing %s: %d trials\n', events{evt}, EEG.trials);
+        
+        % FFT parameters
+        nWave = length(wavtime);
+        nData = EEG.pnts * EEG.trials;
+        nConv = nWave + nData - 1;
+        
+        % Process each channel
+        for ch = 1:nChannels
+            
+            % Get channel data (all trials concatenated)
+            alldata = reshape(EEG.data(ch, :, :), 1, []);
+            dataX = fft(alldata, nConv);
+            
+            % Process each frequency
+            for fi = 1:length(frex)
+                
+                % Create wavelet
+                wavelet = exp(2*1i*pi*frex(fi).*wavtime) .* exp(-wavtime.^2./(2*s(fi)^2));
+                waveletX = fft(wavelet, nConv);
+                waveletX = waveletX ./ max(waveletX);
+                
+                % Convolution
+                as = ifft(waveletX .* dataX);
+                as = as(half_wave+1:end-half_wave);
+                
+                % Reshape to trials
+                as = reshape(as, EEG.pnts, EEG.trials);
+                
+                % Compute power and average over trials
+                if evt == 1  % MI
+                    tf_MI(sub, fi, :, ch) = mean(abs(as).^2, 2);
+                else  % Rest
+                    tf_Rest(sub, fi, :, ch) = mean(abs(as).^2, 2);
+                end
+            end
+        end
+    end
+end
+
+%% Convert to dB
+fprintf('\nConverting to dB...\n');
+
+tf_MI_db = zeros(size(tf_MI), 'single');
+tf_Rest_db = zeros(size(tf_Rest), 'single');
+
+for sub = 1:nSubject
+    for ch = 1:nChannels
+
+        % Get the power data for this subject and channel
+        power_MI = squeeze(tf_MI(sub, :, :, ch));  % [num_frex x nTimes]
+        power_Rest = squeeze(tf_Rest(sub, :, :, ch));  % [num_frex x nTimes]
+
+        % Get baseline for each condition
+        baseline_MI = mean(tf_MI(sub, :, baseidx(1):baseidx(2), ch), 3)';  % [num_frex x 1]
+        baseline_Rest = mean(tf_Rest(sub, :, baseidx(1):baseidx(2), ch), 3)';  % [num_frex x 1]
+        
+        % Convert to dB using bsxfun for proper broadcasting
+        tf_MI_db(sub, :, :, ch) = 10*log10(bsxfun(@rdivide, power_MI, baseline_MI));
+        tf_Rest_db(sub, :, :, ch) = 10*log10(bsxfun(@rdivide, power_Rest, baseline_Rest));
+    end
+end
+
+%% Save processed data
+fprintf('Saving processed data...\n');
+save('tf_MI_db.mat', 'tf_MI_db', '-v7.3');
+save('tf_Rest_db.mat', 'tf_Rest_db', '-v7.3');
+
+%% Topography plots - 10 time bins across 0-2000ms
+fprintf('Creating topography plots...\n');
+
+% Load channel locations
+load EEG_chlocs_60.mat
+
+% Define time windows for topography (10 bins from 0 to 2000ms)
+topo_start = -150;  % 0ms
+topo_end = 2*SR;  % 2000ms
+
+bin_width = (topo_end - topo_start) / n_bins;
+n_bins = 20;
+
+% Frequency band of interest (e.g., alpha band 8-13 Hz)
+freq_band = [8 30];
+freq_idx = find(frex >= freq_band(1) & frex <= freq_band(2));
+
+% Color limits for topography
+clim = [-3 3];
+
+% Create figure for topography
+figure('Position', [100 100 1400 600]);
+sgtitle('Topography: Alpha Band (8-13 Hz) Power', 'FontSize', 16);
+
+% MI condition
+for i = 1:n_bins
+    subplot(2, n_bins, i);
+    
+    % Define time window
+    t_start = topo_start + (i-1) * bin_width;
+    t_end = topo_start + i * bin_width;
+    t_idx = find(times >= t_start & times < t_end);
+    
+    % Average over subjects, frequencies, and time window
+    topo_data = squeeze(mean(mean(mean(tf_MI_db(:, freq_idx, t_idx, :), 1), 2), 3));
+    
+    % Plot topography
+    topoplot(topo_data, EEG_chlocs, ...
+        'maplimits', clim, ...
+        'electrodes', 'off', ...
+        'colormap', jet, ...
+        'style', 'both');
+    
+    title(sprintf('MI: %d-%d ms', round(t_start), round(t_end)), 'FontSize', 10);
+end
+
+% Rest condition
+for i = 1:n_bins
+    subplot(2, n_bins, i + n_bins);
+    
+    % Define time window
+    t_start = topo_start + (i-1) * bin_width;
+    t_end = topo_start + i * bin_width;
+    t_idx = find(times >= t_start & times < t_end);
+    
+    % Average over subjects, frequencies, and time window
+    topo_data = squeeze(mean(mean(mean(tf_Rest_db(:, freq_idx, t_idx, :), 1), 2), 3));
+    
+    % Plot topography
+    topoplot(topo_data, EEG_chlocs, ...
+        'maplimits', clim, ...
+        'electrodes', 'off', ...
+        'colormap', jet, ...
+        'style', 'both');
+    
+    title(sprintf('Rest: %d-%d ms', round(t_start), round(t_end)), 'FontSize', 10);
+end
+
+colorbar('Position', [0.92 0.25 0.02 0.5]);
+set(gcf, 'color', 'w');
+
+%% Time-Frequency plots for specific channels
+fprintf('Creating time-frequency plots...\n');
+
+% Define channels of interest (e.g., motor areas)
+channels_of_interest = {'C3', 'C4', 'Cz', 'FC1', 'FC2', 'FCz'};
+
+% Find channel indices
+ch_idx = [];
+for i = 1:length(channels_of_interest)
+    idx = find(strcmp({EEG_chlocs.labels}, channels_of_interest{i}));
+    if ~isempty(idx)
+        ch_idx = [ch_idx idx];
+    end
+end
+
+% Create TF plots
+figure('Position', [100 100 1200 800]);
+colormap(jet);
+
+% MI condition
+subplot(2,2,1);
+tf_data = squeeze(mean(mean(tf_MI_db(:, :, :, ch_idx), 1), 4));
+contourf(times, frex, tf_data, 40, 'linecolor', 'none');
+set(gca, 'clim', [-2 2], 'ydir', 'normal', 'xlim', [-500 2500], 'yscale', 'log');
+ylim([2 50]);
+xlabel('Time (ms)');
+ylabel('Frequency (Hz)');
+title('MI - Motor Channels');
+xline(0, '-.r', 'LineWidth', 2);
+yticks([4 8 13 30 50]);
+colorbar;
+
+% Rest condition
+subplot(2,2,2);
+tf_data = squeeze(mean(mean(tf_Rest_db(:, :, :, ch_idx), 1), 4));
+contourf(times, frex, tf_data, 40, 'linecolor', 'none');
+set(gca, 'clim', [-2 2], 'ydir', 'normal', 'xlim', [-500 2500], 'yscale', 'log');
+ylim([2 50]);
+xlabel('Time (ms)');
+ylabel('Frequency (Hz)');
+title('Rest - Motor Channels');
+xline(0, '-.r', 'LineWidth', 2);
+yticks([4 8 13 30 50]);
+colorbar;
+
+% Difference (MI - Rest)
+subplot(2,2,3);
+tf_diff = squeeze(mean(mean(tf_MI_db(:, :, :, ch_idx), 1), 4)) - ...
+          squeeze(mean(mean(tf_Rest_db(:, :, :, ch_idx), 1), 4));
+contourf(times, frex, tf_diff, 40, 'linecolor', 'none');
+set(gca, 'clim', [-1 1], 'ydir', 'normal', 'xlim', [-500 2500], 'yscale', 'log');
+ylim([2 50]);
+xlabel('Time (ms)');
+ylabel('Frequency (Hz)');
+title('MI - Rest Difference');
+xline(0, '-.r', 'LineWidth', 2);
+yticks([4 8 13 30 50]);
+colorbar;
+
+set(gcf, 'color', 'w');
+
+%% Power over time for specific frequency bands
+fprintf('Creating power time series plots...\n');
+
+figure('Position', [100 100 1000 600]);
+
+% Define frequency bands
+bands = {'Theta', [4 8]; 'Alpha', [8 13]; 'Beta', [13 30]; 'Gamma', [30 50]};
+
+for b = 1:length(bands)
+    subplot(2, 2, b);
+    
+    % Find frequency indices for band
+    band_idx = find(frex >= bands{b, 2}(1) & frex <= bands{b, 2}(2));
+    
+    % Average over subjects, frequencies in band, and channels
+    power_MI = squeeze(mean(mean(mean(tf_MI_db(:, band_idx, :, ch_idx), 1), 2), 4));
+    power_Rest = squeeze(mean(mean(mean(tf_Rest_db(:, band_idx, :, ch_idx), 1), 2), 4));
+    
+    % Calculate SEM (if multiple subjects)
+    if nSubject > 1
+        sem_MI = squeeze(std(mean(mean(tf_MI_db(:, band_idx, :, ch_idx), 2), 4), [], 1)) / sqrt(nSubject);
+        sem_Rest = squeeze(std(mean(mean(tf_Rest_db(:, band_idx, :, ch_idx), 2), 4), [], 1)) / sqrt(nSubject);
+    else
+        sem_MI = zeros(size(power_MI));
+        sem_Rest = zeros(size(power_Rest));
+    end
+    
+    % Plot with error bars
+    hold on;
+    h1 = plot(times, power_MI, 'b-', 'LineWidth', 2);
+    h2 = plot(times, power_Rest, 'r-', 'LineWidth', 2);
+    
+    % Add shaded error bars
+    fill([times fliplr(times)], [power_MI+sem_MI fliplr(power_MI-sem_MI)], 'b', 'FaceAlpha', 0.2, 'EdgeColor', 'none');
+    fill([times fliplr(times)], [power_Rest+sem_Rest fliplr(power_Rest-sem_Rest)], 'r', 'FaceAlpha', 0.2, 'EdgeColor', 'none');
+    
+    xlim([-500 2500]);
+    xlabel('Time (ms)');
+    ylabel('Power (dB)');
+    title(sprintf('%s Band (%d-%d Hz)', bands{b, 1}, bands{b, 2}(1), bands{b, 2}(2)));
+    xline(0, 'k--');
+    yline(0, 'k:');
+    legend([h1 h2], {'MI', 'Rest'}, 'Location', 'best');
+    grid on;
+end
+
+set(gcf, 'color', 'w');
