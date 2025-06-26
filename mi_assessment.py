@@ -59,7 +59,7 @@ class EEGMarkerGUI:
 
         self.total_trials = tk.IntVar(value=40)
 
-        self.rest_type = "fixation" # options: text (read neutral word), shape (complex shape/image), fixation (big fixation cue) 
+        self.rest_type = "text" # options: text (read neutral word), shape (complex shape/image), fixation (big fixation cue) 
 
         # Minimum baseline duration (in seconds) for randomization
         self.min_baseline_duration = 2.5
@@ -958,7 +958,7 @@ class EEGMarkerGUI:
                 text='',
                 font='Arial',
                 pos=(0, 0),
-                height=0.3,
+                height=0.4,
                 wrapWidth=None,
                 color='white',  # Use string 'white' instead of (1,1,1)
                 bold=True,      # Make text bold
@@ -1740,7 +1740,9 @@ class EEGMarkerGUI:
     def start_baseline_phase(self):
         """Display fixation cross and handle baseline beep"""
 
+        self.cue_text.height = 0.5
         self.update_cue("+", "Baseline")
+        
         self.send_marker(self.baseline)
 
         # Use max duration from slider, randomize between min and max
@@ -1760,15 +1762,20 @@ class EEGMarkerGUI:
         self.trigger_baseline_beep()
         
         if activity == 'imagery':
+            self.cue_text.height = 0.5
             self.update_cue("•", "Motor Imagery")
+            
             marker_start = self.motor_imagery
             duration = self.imagery_duration.get()
             self.log(f"Phase: Motor Imagery ({duration} s)")
         else: # activity == 'rest'
 
             if self.rest_type == 'text':
-                self.update_cue("Rest", "Rest")
+                self.cue_text.height = 0.2
+                self.update_cue("REST", "Rest")
+                
             elif self.rest_type == 'fixation':
+                self.cue_text.height = 0.5
                 self.update_cue("+", "Rest")
             marker_start = self.rest
             duration = self.rest_duration.get()
