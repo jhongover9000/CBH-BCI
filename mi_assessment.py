@@ -59,6 +59,8 @@ class EEGMarkerGUI:
 
         self.total_trials = tk.IntVar(value=40)
 
+        self.rest_type = "shape" # options: text (read neutral word), shape (complex shape/image), fixation (big fixation cue) 
+
         # Minimum baseline duration (in seconds) for randomization
         self.min_baseline_duration = 2.5
 
@@ -104,7 +106,10 @@ class EEGMarkerGUI:
 
         # Questions and Instructions
         self.imagery_question = "Did you imagine the motor movement?"
-        self.rest_question = "Were you able to maintain a resting state?"
+        if(self.rest_type == "fixation"):
+            self.rest_question = "Were you able to maintain a resting state?"
+        elif self.rest_type == "text":
+            self.rest_question = "Were you able to maintain fixation?"
         self.instructions = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Blank Screen :  Rest\n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
         self.show_instructions = True
 
@@ -116,8 +121,6 @@ class EEGMarkerGUI:
         self.beep_frequency = 400  # Hz
         self.beep_duration = 0.1   # seconds
         self.sound_fallback_method = tk.StringVar(value="system")  # "system", "visual", "none"
-        
-
         
         self.setup_ui()
         self.get_available_com_ports()
@@ -732,6 +735,9 @@ class EEGMarkerGUI:
         try:
             # Update the text stimulus
             if self.cue_text:
+
+
+
                 # Set the text
                 self.cue_text.setText(symbol)
                 
@@ -1474,9 +1480,9 @@ class EEGMarkerGUI:
         is_pre_assessment = not self.is_post_assessment.get()
         
         if is_pre_assessment:
-            self.instruction = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Blank Screen : Rest \n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
+            self.instruction = "Pre-Training Motor Imagery Assessment.\n\n\n\nAfter a baseline period, there will be a beep cue and depending on the visual cue presented, you will need to perform a different task. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Text : Read the text silently. \n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
         else:
-            self.instruction = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Blank Screen : Rest\n\nPlease let the experimenter know when you are ready to begin."
+            self.instruction = "Post-Training Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Blank Screen : Rest\n\nPlease let the experimenter know when you are ready to begin."
         
         # Update the stimulus if it exists
         if hasattr(self, 'instruction_stim'):
@@ -1764,6 +1770,11 @@ class EEGMarkerGUI:
             duration = self.imagery_duration.get()
             self.log(f"Phase: Motor Imagery ({duration} s)")
         else: # activity == 'rest'
+
+            if self.rest_type == 'text':
+                self.update_cue("Rest", "Rest")
+            elif self.rest_type == 'shape':
+                self.update_cue("", "Rest")
             self.update_cue("", "Rest") # Blank screen for rest
             marker_start = self.rest
             duration = self.rest_duration.get()
