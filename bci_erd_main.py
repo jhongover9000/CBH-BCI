@@ -480,9 +480,9 @@ class ERDDetectionSystem:
                 if csp_pred is not None:
                     # Combine CSP+SVM with ERD detection
                     # SVM confidence (0-1) is weighted with ERD percentage (0-100)
-                    combined_conf = ( (0.6 * (csp_conf)) + (0.4 * (avg_erd/100) ) )
+                    combined_conf = ( (0 * (csp_conf)) + (1 * (avg_erd/100) ) )
                     combined_conf = csp_conf
-                    detected = combined_conf > 0.7
+                    detected = combined_conf > 0.5
                     erd_values['csp_conf'] = csp_conf * 100
                     erd_values['combined_conf'] = combined_conf * 100
                     
@@ -633,7 +633,7 @@ class BCISystem:
         collection_mode = None
         
         try:
-            while self.running and (time.time() - self.session_start_time) < BCIConfig.SESSION_DURATION:
+            while self.running:
                 
                 # Handle keyboard input
                 if self.keyboard_enabled:
@@ -1067,6 +1067,8 @@ def main():
     # Connection options
     parser.add_argument('--virtual', action='store_true', default=BCIConfig.VIRTUAL,
                        help="Use virtual receiver")
+    parser.add_argument('--broadcast', action='store_true', default=BCIConfig.BROADCAST_ENABLED,
+                       help="Broadcast classification")
     parser.add_argument('--ip', default=BCIConfig.LIVESTREAM_IP,
                        help="Livestream IP address")
     parser.add_argument('--port', type=int, default=BCIConfig.LIVESTREAM_PORT,

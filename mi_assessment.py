@@ -59,7 +59,7 @@ class EEGMarkerGUI:
 
         self.total_trials = tk.IntVar(value=40)
 
-        self.rest_type = "shape" # options: text (read neutral word), shape (complex shape/image), fixation (big fixation cue) 
+        self.rest_type = "text" # options: text (read neutral word), shape (complex shape/image), fixation (big fixation cue) 
 
         # Minimum baseline duration (in seconds) for randomization
         self.min_baseline_duration = 2.5
@@ -963,7 +963,7 @@ class EEGMarkerGUI:
                 text='',
                 font='Arial',
                 pos=(0, 0),
-                height=0.3,
+                height=0.4,
                 wrapWidth=None,
                 color='white',  # Use string 'white' instead of (1,1,1)
                 bold=True,      # Make text bold
@@ -1745,7 +1745,9 @@ class EEGMarkerGUI:
     def start_baseline_phase(self):
         """Display fixation cross and handle baseline beep"""
 
+        self.cue_text.height = 0.5
         self.update_cue("+", "Baseline")
+        
         self.send_marker(self.baseline)
 
         # Use max duration from slider, randomize between min and max
@@ -1765,17 +1767,21 @@ class EEGMarkerGUI:
         self.trigger_baseline_beep()
         
         if activity == 'imagery':
+            self.cue_text.height = 0.5
             self.update_cue("•", "Motor Imagery")
+            
             marker_start = self.motor_imagery
             duration = self.imagery_duration.get()
             self.log(f"Phase: Motor Imagery ({duration} s)")
         else: # activity == 'rest'
 
             if self.rest_type == 'text':
-                self.update_cue("Rest", "Rest")
-            elif self.rest_type == 'shape':
-                self.update_cue("", "Rest")
-            self.update_cue("", "Rest") # Blank screen for rest
+                self.cue_text.height = 0.2
+                self.update_cue("REST", "Rest")
+                
+            elif self.rest_type == 'fixation':
+                self.cue_text.height = 0.5
+                self.update_cue("+", "Rest")
             marker_start = self.rest
             duration = self.rest_duration.get()
             self.log(f"Phase: Rest ({duration} s)")
@@ -1784,6 +1790,20 @@ class EEGMarkerGUI:
         
         # Schedule evaluation phase
         self.root.after(duration * 1000, self.start_evaluation_phase, activity)
+
+    def select_rest_text(self, previous_word):
+        if previous_word is None:
+            # Select a new word randomly from the list
+            word = random.choice(self.rest_texts)
+        else:
+            # Select a new word that is different from the previous one
+            available_words = [w for w in self.rest_texts if w != previous_word]
+            if not available_words:
+                self.log("Warning: No available rest words left to select")
+                return None
+            word = random.choice(available_words)
+        self.previous_word = word
+        self.log(f"Selected rest word: {word}")
 
     def start_evaluation_phase(self, activity_type):
         """Start the evaluation phase after an activity."""

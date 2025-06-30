@@ -1,0 +1,47 @@
+BrainVision Data Exchange Marker File Version 1.0
+
+[Common Infos]
+Codepage=UTF-8
+DataFile=TEST_BCI.eeg
+
+[Marker Infos]
+; Each entry: Mk<Marker number>=<Type>,<Description>,<Position in data points>,
+; <Size in data points>, <Channel number (0 = marker is related to all channels)>
+; Fields are delimited by commas, some fields might be omitted (empty).
+; Commas in type or description text are coded as "\1".
+Mk1=New Segment,,1,1,0,20250626153809523237
+Mk2=Response,R  9,29801,1,0
+Mk3=Response,R 11,30283,1,0
+Mk4=Response,R  9,32096,1,0
+Mk5=Response,R 11,32579,1,0
+Mk6=Response,R  9,36894,1,0
+Mk7=Response,R 11,37380,1,0
+Mk8=Response,R  9,39318,1,0
+Mk9=Response,R 11,39804,1,0
+Mk10=Response,R  9,41746,1,0
+Mk11=Response,R 10,41797,1,0
+Mk12=Response,R  9,43550,1,0
+Mk13=Response,R 10,43618,1,0
+Mk14=Response,R 11,43637,1,0
+Mk15=Response,R 10,45314,1,0
+Mk16=Response,R 10,46405,1,0
+Mk17=Response,R  9,56890,1,0
+Mk18=Response,R 11,57373,1,0
+Mk19=Response,R  9,59331,1,0
+Mk20=Response,R  1,59477,1,0
+Mk21=Response,R 10,59539,1,0
+Mk22=Response,R 11,59556,1,0
+Mk23=Response,R  9,61286,1,0
+Mk24=Response,R  1,61758,1,0
+Mk25=Response,R 11,61775,1,0
+Mk26=Response,R  9,63699,1,0
+Mk27=Response,R 11,64185,1,0
+Mk28=Response,R  1,64227,1,0
+Mk29=Response,R  9,66115,1,0
+Mk30=Response,R  1,66254,1,0
+Mk31=Response,R 10,66316,1,0
+Mk32=Response,R 11,66334,1,0
+Mk33=Response,R  1,68043,1,0
+Mk34=Response,R  9,68060,1,0
+Mk35=Response,R 10,68105,1,0
+Mk36=Response,R  1,68296,1,0

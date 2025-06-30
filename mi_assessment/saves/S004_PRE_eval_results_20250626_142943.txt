@@ -1,0 +1,12 @@
+Evaluation Results - Subject 004 - PRE Assessment
+Date/Time: 2025-06-26 14:29:43
+======================================================================
+
+Trial | Activity Type | Response | Response Time (s)
+----------------------------------------------------------------------
+    1 | imagery      | NO       |           0.88
+
+Summary Statistics:
+----------------------------------------------------------------------
+Motor Imagery Trials: 1, YES responses: 0 (0.0%)
+Total Trials: 1, YES responses: 0 (0.0%)
