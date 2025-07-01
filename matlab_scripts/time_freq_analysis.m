@@ -154,7 +154,7 @@ clim = [-3 3];
 
 % Create figure for topography
 figure('Position', [100 100 1400 600]);
-sgtitle('Topography: Alpha Band (8-13 Hz) Power', 'FontSize', 16);
+sgtitle('Topography:' + int2str(freq_band) + 'Power', 'FontSize', 16);
 
 % MI condition
 for i = 1:n_bins

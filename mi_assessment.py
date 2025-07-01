@@ -121,7 +121,13 @@ class EEGMarkerGUI:
         self.beep_frequency = 400  # Hz
         self.beep_duration = 0.1   # seconds
         self.sound_fallback_method = tk.StringVar(value="system")  # "system", "visual", "none"
-        
+
+        # MI Visual Reference
+        self.use_mi_image = tk.BooleanVar(value=True)  # Enable image display by default
+        self.mi_image_path = tk.StringVar(value="./mi_assessment/resources/mi_visual_reference.png")  # Default path
+        self.mi_image_stimulus = None
+        self.showing_mi_image = False
+
         self.setup_ui()
         self.get_available_com_ports()
         self.get_available_monitors()
@@ -336,6 +342,25 @@ class EEGMarkerGUI:
         video_frame = ttk.LabelFrame(left_frame, text="Instruction Video")
         video_frame.grid(row=left_row, column=0, sticky="ew", pady=(0, 10), padx=5)
         left_row += 1
+
+        # Motor Imagery Image Frame
+        mi_image_frame = ttk.LabelFrame(left_frame, text="Motor Imagery Image")
+        mi_image_frame.grid(row=left_row, column=0, sticky="ew", pady=(0, 10), padx=5)
+        left_row += 1
+
+        # Checkbox to use MI image
+        ttk.Checkbutton(mi_image_frame, text="Show image during motor imagery", 
+                    variable=self.use_mi_image,
+                    command=self.toggle_mi_image_settings).grid(
+                        row=0, column=0, columnspan=2, sticky="w", padx=5, pady=2)
+
+        # File path and browse button
+        self.mi_image_path_entry = ttk.Entry(mi_image_frame, textvariable=self.mi_image_path, width=20, state="normal")
+        self.mi_image_path_entry.grid(row=1, column=0, sticky="ew", padx=5, pady=2)
+
+        self.mi_image_browse_button = ttk.Button(mi_image_frame, text="Browse", command=self.browse_mi_image_file, state="normal")
+        self.mi_image_browse_button.grid(row=1, column=1, sticky="w", padx=5, pady=2)
+        self.dynamic_buttons.append(self.mi_image_browse_button)
 
         # Checkbox to use instruction video
         ttk.Checkbutton(video_frame, text="Show instruction video", 
@@ -910,11 +935,12 @@ class EEGMarkerGUI:
                 self.psychopy_window = visual.Window(
                     size=(main_screen_width, main_screen_height),
                     fullscr=True,
-                    color='gray',  # Explicitly use 'gray' instead of (-1,-1,-1)
+                    color=[0.1,0.1,0.1],  # Explicitly use 'gray' instead of (-1,-1,-1)
                     units='norm',
                     allowGUI=False,
                     screen=0
                 )
+                
             else:
                 # For secondary monitor, try with specific position
                 # Assuming secondary monitor is to the right of primary (most common setup)
@@ -927,13 +953,14 @@ class EEGMarkerGUI:
                     self.psychopy_window = visual.Window(
                         size=(main_screen_width, main_screen_height),  # Assume same size as primary
                         fullscr=True,
-                        color='gray',
+                        color=[0.2,0.2,0.2],
                         units='norm',
                         allowGUI=False,
                         pos=pos,  # Position at start of second monitor
                         screen=1
                     )
                     self.log("Created window with explicit position")
+                    
                 except Exception as pos_err:
                     self.log(f"Error creating window with position: {pos_err}")
                     # If explicit positioning fails, try just with screen index
@@ -1039,7 +1066,7 @@ class EEGMarkerGUI:
                         win=self.psychopy_window,
                         filename=self.video_file_path.get(),
                         pos=(0, 0),
-                        size=[1920,1080],  # adjust for monitor!!
+                        size=[1920,1080],
                         flipVert=False,
                         flipHoriz=False
                     )
@@ -1047,6 +1074,29 @@ class EEGMarkerGUI:
                 except Exception as e:
                     self.log(f"Error creating video stimulus: {e}")
                     self.video_stimulus = None
+
+            # Create motor imagery image stimulus if image file is specified
+            if self.use_mi_image.get() and self.mi_image_path.get():
+                try:
+                    # Check if file exists
+                    if os.path.exists(self.mi_image_path.get()):
+                        self.mi_image_stimulus = visual.ImageStim(
+                            win=self.psychopy_window,
+                            image=self.mi_image_path.get(),
+                            pos=(0, 0),
+                            size=[1920,1080],
+                            units='pix',  # Use pixel units for image size
+                        )
+                        
+                        self.log("Motor imagery image stimulus created successfully")
+                    else:
+                        self.log(f"Warning: MI image file not found: {self.mi_image_path.get()}")
+                        self.mi_image_stimulus = None
+                except Exception as e:
+                    self.log(f"Error creating MI image stimulus: {e}")
+                    self.mi_image_stimulus = None
+            else:
+                self.mi_image_stimulus = None
             
             # Draw initial text and flip to show it's working
             if self.show_instructions:
@@ -1401,6 +1451,72 @@ class EEGMarkerGUI:
             self.log(f"Error sending raw byte {byte_value}: {e}")
             raise
 
+    def toggle_mi_image_settings(self):
+        """Enable/disable MI image file controls based on checkbox"""
+        if self.use_mi_image.get():
+            self.mi_image_path_entry.config(state="normal")
+            self.mi_image_browse_button.config(state="normal")
+        else:
+            self.mi_image_path_entry.config(state="disabled")
+            self.mi_image_browse_button.config(state="disabled")
+            
+    def browse_mi_image_file(self):
+        """Open file dialog to select an MI image file"""
+        filetypes = [
+            ('Image files', '*.jpg *.jpeg *.png *.bmp *.gif *.tiff'),
+            ('JPEG files', '*.jpg *.jpeg'),
+            ('PNG files', '*.png'),
+            ('All files', '*.*')
+        ]
+        
+        filename = filedialog.askopenfilename(
+            title="Select Motor Imagery Image",
+            filetypes=filetypes
+        )
+        
+        if filename:
+            self.mi_image_path.set(filename)
+            self.log(f"Selected MI image file: {filename}")
+
+    def show_mi_image(self):
+        """Display the motor imagery image fullscreen"""
+        if not self.psychopy_window or not self.mi_image_stimulus:
+            self.log("Warning: Cannot show MI image - window or stimulus not available")
+            return
+            
+        try:
+            self.showing_mi_image = True
+            
+            # Clear any text cues
+            self.cue_text.setText("")
+            
+            # Draw the image stimulus
+            self.mi_image_stimulus.draw()
+            self.psychopy_window.flip()
+            
+            self.log("Motor imagery image displayed")
+            
+        except Exception as e:
+            self.log(f"Error showing MI image: {e}")
+            # Fallback to text cue
+            self.update_cue("•", "Motor Imagery")
+
+    def hide_mi_image(self):
+        """Hide the motor imagery image"""
+        if not self.psychopy_window:
+            return
+            
+        try:
+            self.showing_mi_image = False
+            
+            # Just flip to clear the screen
+            self.psychopy_window.flip()
+            
+            self.log("Motor imagery image hidden")
+            
+        except Exception as e:
+            self.log(f"Error hiding MI image: {e}")
+
     def show_evaluation_screen(self):
         """Show the evaluation screen with question based on activity type"""
         if not self.psychopy_window:
@@ -1598,6 +1714,9 @@ class EEGMarkerGUI:
             self.serial_connection.close()
             self.log("Serial connection closed")
 
+        if hasattr(self, 'showing_mi_image') and self.showing_mi_image:
+            self.showing_mi_image = False
+
         # Close the PsychoPy window
         if hasattr(self, 'psychopy_window') and self.psychopy_window:
             try:
@@ -1765,14 +1884,23 @@ class EEGMarkerGUI:
 
         # Play baseline beep at fixation start
         self.trigger_baseline_beep()
+
+        marker_start = self.motor_imagery
+        duration = self.imagery_duration.get()
         
         if activity == 'imagery':
-            self.cue_text.height = 0.5
-            self.update_cue("•", "Motor Imagery")
+            # Check if we should show image or text cue
+            if self.use_mi_image.get() and self.mi_image_stimulus:
+                self.show_mi_image()
+                self.log(f"Phase: Motor Imagery with image ({duration} s)")
+            else:
+                # Fallback to text cue
+                self.cue_text.height = 0.5
+                self.update_cue("•", "Motor Imagery")
+                self.log(f"Phase: Motor Imagery with text cue ({duration} s)")
             
-            marker_start = self.motor_imagery
-            duration = self.imagery_duration.get()
-            self.log(f"Phase: Motor Imagery ({duration} s)")
+            
+
         else: # activity == 'rest'
 
             if self.rest_type == 'text':
@@ -1807,6 +1935,10 @@ class EEGMarkerGUI:
 
     def start_evaluation_phase(self, activity_type):
         """Start the evaluation phase after an activity."""
+        # Hide MI image if it was showing
+        if self.showing_mi_image:
+            self.hide_mi_image()
+        
         # Clear any previous cue
         self.update_cue("", "Evaluation")
         
@@ -1823,8 +1955,6 @@ class EEGMarkerGUI:
         self.send_marker(self.eval_start)
         
         self.log("Evaluation phase started - waiting for Y/N keypress")
-        
-        # Note: No timeout - waiting for user keystroke
 
     def update_video_ui_status(self):
         """Update video UI elements to show availability based on assessment type"""
