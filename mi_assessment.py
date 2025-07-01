@@ -109,8 +109,8 @@ class EEGMarkerGUI:
         if(self.rest_type == "fixation"):
             self.rest_question = "Were you able to maintain a resting state?"
         elif self.rest_type == "text":
-            self.rest_question = "Were you able to maintain fixation?"
-        self.instructions = "Welcome to the Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Blank Screen :  Rest\n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
+            self.rest_question = "Were you able to maintain a resting state?"
+        self.instructions = ""
         self.show_instructions = True
 
         # Sound
@@ -1596,9 +1596,9 @@ class EEGMarkerGUI:
         is_pre_assessment = not self.is_post_assessment.get()
         
         if is_pre_assessment:
-            self.instruction = "Pre-Training Motor Imagery Assessment.\n\n\n\nAfter a baseline period, there will be a beep cue and depending on the visual cue presented, you will need to perform a different task. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Text : Read the text silently. \n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
+            self.instruction = "Pre-Training Motor Imagery Assessment\n\n\n\nAfter a fixation period, there will be a beep cue and depending on the visual cue presented, you will need to perform a different task. After each task, you will evaluate your performance, pressing a key with your left hand.\n\n+ : Fixation\nImage of Hand : Motor Imagery\n \"Rest\" : Resting \n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
         else:
-            self.instruction = "Post-Training Motor Imagery Assessment.\n\n\n\nAfter a baseline period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance.\n\n+ : Fixation\n\u2022 : Motor Imagery\n Blank Screen : Rest\n\nPlease let the experimenter know when you are ready to begin."
+            self.instruction = "Post-Training Motor Imagery Assessment\n\n\n\nAfter a fixation period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance, pressing a key with your left hand.\n\n+ : Fixation\nImage of Hand : Motor Imagery\n \"Rest\" : Rest\n\nPlease let the experimenter know when you are ready to begin."
         
         # Update the stimulus if it exists
         if hasattr(self, 'instruction_stim'):
@@ -1905,7 +1905,7 @@ class EEGMarkerGUI:
 
             if self.rest_type == 'text':
                 self.cue_text.height = 0.2
-                self.update_cue("REST", "Rest")
+                self.update_cue("Rest", "Rest")
                 
             elif self.rest_type == 'fixation':
                 self.cue_text.height = 0.5

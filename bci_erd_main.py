@@ -41,32 +41,32 @@ class BCIConfig:
     
     # Buffer settings
     MAIN_BUFFER_DURATION = 20.0      # seconds
-    BASELINE_BUFFER_DURATION = 5.0  # seconds (≤ main buffer)
-    OPERATING_WINDOW_DURATION = 2.0  # seconds
+    BASELINE_BUFFER_DURATION = 3.0  # seconds (≤ main buffer)
+    OPERATING_WINDOW_DURATION = 1.0  # seconds
     WINDOW_OVERLAP = 0.5            # overlap fraction (0.5 = 50% overlap)
     
     # ERD detection settings
-    ERD_CHANNELS = ['C3','FC3', 'CP3', 'C1', 'C5', 'FC5', 'FC1', 'CP5', 'CP1']
-    # ERD_CHANNELS = ['C3']
-    ERD_BAND = (8, 20)  # mu band in Hz
-    ERD_THRESHOLD = 20.0  # percent
+    # ERD_CHANNELS = ['C3','FC3', 'CP3', 'C1', 'C5', 'FC5', 'FC1', 'CP5', 'CP1']
+    ERD_CHANNELS = ['C3']
+    ERD_BAND = (8, 15)  # mu band in Hz
+    ERD_THRESHOLD = 40.0  # percent
     AVERAGE_ERDS = True  # average electrodes (vs individual ERD check)
     
     # Moving average settings
     BASELINE_MA_WINDOWS = 1      # number of windows to average for baseline
-    ERD_MA_WINDOWS = 5           # number of windows to average for ERD detection
-    USE_MOVING_AVERAGE = True    # enable moving average smoothing
+    ERD_MA_WINDOWS = 2           # number of windows to average for ERD detection
+    USE_MOVING_AVERAGE = False    # enable moving average smoothing
     
     # Baseline settings
     BASELINE_METHOD = 'robust'  # 'standard' or 'robust'
-    ROBUST_METHOD = 'trimmed_mean'  # for robust baseline
+    ROBUST_METHOD = 'median'  # for robust baseline
     SLIDING_BASELINE = True     # Use sliding baseline that updates continuously (off by default)
-    SLIDING_BASELINE_DURATION = 2.0  # seconds of data to use for sliding baseline
+    SLIDING_BASELINE_DURATION = 5.0  # seconds of data to use for sliding baseline
     
     # Preprocessing settings
     USE_CAR = True  # Common Average Reference
     ARTIFACT_METHOD = 'threshold'  # 'ica' or 'threshold'
-    ARTIFACT_THRESHOLD = 100.0  # microvolts
+    ARTIFACT_THRESHOLD = 1000.0  # microvolts
     SPATIAL_METHOD = ''  # 'laplacian' or ''
     
     # Connection settings
@@ -187,7 +187,7 @@ class Preprocessor:
         # Simplified Laplacian for motor channels
         for i, ch_name in enumerate(self.channel_names):
             if 'C3' in ch_name:
-                neighbors = self._find_neighbors(i, BCIConfig.ERD_CHANNELS[1:])
+                neighbors = ['FC3', 'CP3', 'C1', 'C5', 'FC5', 'FC1', 'CP5', 'CP1']
             else:
                 continue
             
@@ -296,45 +296,33 @@ class ERDDetectionSystem:
             return False
         
         # Prepare baseline data
-        if force and main_buffer is not None:
+        if force or main_buffer is not None:
             if len(main_buffer) < self.baseline_buffer.maxlen:
                 recent_samples = list(main_buffer)
             else:
                 recent_samples = list(main_buffer)[-self.baseline_buffer.maxlen:]
-            baseline_data = np.array(recent_samples).T
+            baseline_data = np.array(recent_samples)
         else:
             if len(self.baseline_buffer) == 0:
                 return False
             baseline_data = np.array(list(self.baseline_buffer)).T
-        
+
         if baseline_data.shape[0] != self.n_channels:
             return False
         
         try:
             # Preprocess baseline data
-            erd_data = self.preprocessor.preprocess_data(baseline_data, self.erd_channel_indices)
+            baseline_data_processed = self.preprocessor.preprocess_data(baseline_data, self.erd_channel_indices)
             
             # Calculate baseline power
             if BCIConfig.BASELINE_METHOD == 'robust':
                 # Use robust baseline calculation
-                current_baseline_power = self._calculate_robust_baseline(erd_data)
+                current_baseline_power = self._calculate_robust_baseline(baseline_data_processed)
             else:
                 # Standard baseline calculation
-                current_baseline_power = self.preprocessor.calculate_band_power(erd_data)
+                current_baseline_power = self.preprocessor.calculate_band_power(baseline_data_processed)
             
-            # Apply moving average if enabled
-            if BCIConfig.USE_MOVING_AVERAGE:
-                self.baseline_ma_buffer.append(current_baseline_power)
-                
-                # Calculate smoothed baseline as average of buffer
-                if len(self.baseline_ma_buffer) > 0:
-                    self.smoothed_baseline_power = np.mean(list(self.baseline_ma_buffer), axis=0)
-                    self.baseline_power = self.smoothed_baseline_power
-                    
-                    if BCIConfig.VERBOSE:
-                        print(f"Baseline MA buffer: {len(self.baseline_ma_buffer)}/{BCIConfig.BASELINE_MA_WINDOWS}")
-            else:
-                self.baseline_power = current_baseline_power
+            self.baseline_power = current_baseline_power
             
             self.baseline_calculated = True
             
@@ -373,8 +361,8 @@ class ERDDetectionSystem:
         
         # Apply robust method
         if BCIConfig.ROBUST_METHOD == 'trimmed_mean':
-            # Remove top and bottom 20%
-            return RobustBaseline._trimmed_mean(segment_powers.T, trim_percent=0.2)
+            # Remove top and bottom 10%
+            return RobustBaseline._trimmed_mean(segment_powers.T, trim_percent=0.1)
         elif BCIConfig.ROBUST_METHOD == 'median':
             return np.median(segment_powers, axis=0)
         else:
@@ -404,8 +392,8 @@ class ERDDetectionSystem:
                     baseline_data = np.array(recent_samples).T
                     self.calculate_baseline(force=True, main_buffer=deque(baseline_data))
                     
-                    if BCIConfig.VERBOSE:
-                        print(f"Sliding baseline updated using {len(recent_samples)/self.fs:.1f}s of data")
+                # if BCIConfig.VERBOSE:
+                #     print(f"Sliding baseline updated using {len(recent_samples)/self.fs:.1f}s of data")
         
         # Check if we have a valid baseline
         if not self.baseline_calculated or self.baseline_power is None:
@@ -435,8 +423,6 @@ class ERDDetectionSystem:
             
             # Apply moving average if enabled
             if BCIConfig.USE_MOVING_AVERAGE:
-                # Add current values to moving average buffer
-                self.erd_ma_buffer.append(current_erd_values)
                 
                 # Calculate smoothed ERD values
                 smoothed_erd_values = {}
@@ -588,7 +574,7 @@ class BCISystem:
     def _init_receiver(self):
         """Initialize appropriate receiver"""
         if BCIConfig.VIRTUAL:
-            self.receiver = virtual_receiver.Emulator(verbose=BCIConfig.VERBOSE)
+            self.receiver = virtual_receiver.Emulator(verbose=BCIConfig.VERBOSE, broadcast=BCIConfig.BROADCAST_ENABLED)
         else:
             self.receiver = livestream_receiver.LivestreamReceiver(
                 address=BCIConfig.LIVESTREAM_IP,
@@ -1105,7 +1091,7 @@ def main():
                        help="Use multiband CSP analysis")
     parser.add_argument('--robust-baseline', action='store_true',
                        help="Use robust baseline calculation")
-    parser.add_argument('--sliding-baseline', action='store_true',
+    parser.add_argument('--sliding-baseline', action='store_true', default = BCIConfig.SLIDING_BASELINE,
                        help="Use sliding baseline that updates continuously")
     parser.add_argument('--sliding-duration', type=float, default=BCIConfig.SLIDING_BASELINE_DURATION,
                        help="Duration for sliding baseline (seconds)")
@@ -1133,6 +1119,7 @@ def main():
     BCIConfig.ERD_MA_WINDOWS = args.erd_ma
     BCIConfig.SLIDING_BASELINE = args.sliding_baseline
     BCIConfig.SLIDING_BASELINE_DURATION = args.sliding_duration
+    BCIConfig.BROADCAST_ENABLED = args.broadcast
     
     # Validate overlap
     if not 0 <= BCIConfig.WINDOW_OVERLAP < 1:
@@ -1148,6 +1135,7 @@ def main():
     print(f"Window:            {BCIConfig.OPERATING_WINDOW_DURATION}s")
     print(f"Overlap:           {BCIConfig.WINDOW_OVERLAP*100}%")
     print(f"Baseline:          {BCIConfig.BASELINE_METHOD}")
+    print(f"Broadcast:          {BCIConfig.BROADCAST_ENABLED}")
     if BCIConfig.SLIDING_BASELINE:
         print(f"  Sliding:         Yes ({BCIConfig.SLIDING_BASELINE_DURATION}s window)")
     print(f"Moving Average:    {'Enabled' if BCIConfig.USE_MOVING_AVERAGE else 'Disabled'}")

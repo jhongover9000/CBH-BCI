@@ -1,24 +1,26 @@
 '''
-Enhanced Virtual Receiver with automatic scaling, diagnostics, and annotation detection
-Fixes common issues with ERD detection in virtual mode
+Enhanced Virtual Receiver with automatic scaling, diagnostics, annotation detection, and broadcasting
+Fixes common issues with ERD detection in virtual mode and adds TCP broadcasting capability
 '''
 
 import time
 import numpy as np
 import mne
 from scipy import signal
+from broadcasting import TCP_Server
+import threading
 
 data_dir = "./data/rawdata/cbh/"
 
 class Emulator:
-    def __init__(self, fileName="CBH0000", auto_scale=False, verbose=False):
+    def __init__(self, fileName="TEST_NATTY", auto_scale=False, verbose=False, broadcast=False):
         self.vhdr_file = f"{data_dir}{fileName}.vhdr"
         self.eeg_file = f"{data_dir}{fileName}.eeg"
         self.channel_count = 0
         self.sampling_frequency = 0
         self.sampling_interval_us = 0
         self.channel_names = []
-        self.latency = 0.00
+        self.latency = 0.005
         self.chunk_size = None
         self.current_index = 0
         self.raw_data = None
@@ -36,6 +38,17 @@ class Emulator:
         self.annotation_onsets = None
         self.annotation_descriptions = None
         self.data_start_time = 0  # Track when the cropped data starts
+        
+        # Broadcasting feature
+        self.broadcasting = broadcast
+        self.server = None
+
+        # If broadcasting classification (for further applications), set up TCP server
+        if broadcast:
+            self.server = TCP_Server.TCPServer()
+            self.server.initialize_connection()
+            if self.verbose:
+                print("TCP Server Initialized for broadcasting")
         
     def initialize_connection(self):
         """Initialize connection with enhanced diagnostics"""
@@ -94,6 +107,8 @@ class Emulator:
         if self.verbose:
             print(f"Loaded {self.channel_count} channels at {self.sampling_frequency} Hz")
             print(f"Chunk size: {self.chunk_size} samples per channel")
+            if self.broadcasting:
+                print("Broadcasting enabled - classification results will be sent via TCP")
         
         # Auto-scale if enabled
         if self.auto_scale:
@@ -250,7 +265,8 @@ class Emulator:
             'dc_offset_removed': self.dc_offset is not None,
             'total_duration': self.raw_data._data.shape[1] / self.sampling_frequency,
             'data_shape': self.raw_data._data.shape,
-            'n_annotations': len(self.annotation_onsets) if self.annotation_onsets is not None else 0
+            'n_annotations': len(self.annotation_onsets) if self.annotation_onsets is not None else 0,
+            'broadcasting_enabled': self.broadcasting
         }
         
         # Add statistics for motor channels
@@ -340,30 +356,91 @@ class Emulator:
             print("Reset to beginning of file")
     
     def use_classification(self, prediction):
-        # """Handle classification output"""
-        # if prediction == 0:
-        #     print("Rest")
-        # elif prediction == 1:
-        #     print("Motor Imagery Detected (Flex)")
-        # else:
-        #     print("Extend")
-        pass
+        """Handle classification output with broadcasting support"""
+        if prediction == 0:
+            if self.verbose:
+                print("Rest")
+        elif prediction == 1:
+            if self.verbose:
+                print("Motor Imagery Detected (Flex)")
+            # Send TAP message if broadcasting is enabled
+            if self.broadcasting and self.server:
+                try:
+                    self.server.send_message_tcp("TAP")
+                    if self.verbose:
+                        print("Sent TAP command via TCP")
+                except Exception as e:
+                    if self.verbose:
+                        print(f"Error sending TCP message: {e}")
+        else:
+            if self.verbose:
+                print("Extend")
+    
+    def send_custom_message(self, message):
+        """Send a custom message via TCP if broadcasting is enabled"""
+        if self.broadcasting and self.server:
+            try:
+                self.server.send_message_tcp(message)
+                if self.verbose:
+                    print(f"Sent custom message via TCP: {message}")
+                return True
+            except Exception as e:
+                if self.verbose:
+                    print(f"Error sending TCP message: {e}")
+                return False
+        else:
+            if self.verbose:
+                print("Broadcasting not enabled or server not initialized")
+            return False
+    
+    def get_server_status(self):
+        """Get the status of the TCP server"""
+        if self.broadcasting and self.server:
+            return {
+                'broadcasting_enabled': True,
+                'server_initialized': self.server is not None,
+                'server_object': self.server
+            }
+        else:
+            return {
+                'broadcasting_enabled': False,
+                'server_initialized': False,
+                'server_object': None
+            }
     
     def disconnect(self):
         """Disconnect and cleanup"""
         self.current_index = 0
+        
+        # Close TCP server if it was initialized
+        if self.broadcasting and self.server:
+            try:
+                # Note: The actual TCP_Server class might have a different cleanup method
+                # You may need to adjust this based on the TCP_Server implementation
+                if hasattr(self.server, 'close') or hasattr(self.server, 'disconnect'):
+                    if hasattr(self.server, 'close'):
+                        self.server.close()
+                    else:
+                        self.server.disconnect()
+                    if self.verbose:
+                        print("TCP server disconnected")
+            except Exception as e:
+                if self.verbose:
+                    print(f"Error closing TCP server: {e}")
+        
         if self.verbose:
             print("Disconnected from enhanced EEG emulator")
 
 
 # Quick test function
-def test_enhanced_emulator():
-    """Test the enhanced emulator with annotation detection"""
-    print("Testing Enhanced Virtual Receiver with Annotation Detection")
-    print("=" * 60)
+def test_enhanced_emulator_with_broadcasting():
+    """Test the enhanced emulator with annotation detection and broadcasting"""
+    print("Testing Enhanced Virtual Receiver with Annotation Detection and Broadcasting")
+    print("=" * 80)
     
-    # Create emulator
-    emulator = Emulator(fileName="MIT33", auto_scale=True, verbose=True)
+    # Test without broadcasting first
+    print("\n1. Testing without broadcasting:")
+    emulator = Emulator(fileName="MIT33", auto_scale=True, verbose=True, broadcast=False)
     
     # Initialize
     fs, ch_names, n_channels, _ = emulator.initialize_connection()
@@ -374,40 +451,84 @@ def test_enhanced_emulator():
     print(f"  Total duration: {info['total_duration']:.1f} seconds")
     print(f"  Number of annotations: {info['n_annotations']}")
     print(f"  Scaling factor applied: {info['scaling_factor']:.6f}")
+    print(f"  Broadcasting enabled: {info['broadcasting_enabled']}")
     
-    # Show all annotations
-    all_annotations = emulator.get_all_annotations()
-    if all_annotations:
-        print(f"\nAll annotations in the data:")
-        for ann in all_annotations[:10]:  # Show first 10
-            print(f"  t={ann['onset_time']:.3f}s: '{ann['description']}'")
-        if len(all_annotations) > 10:
-            print(f"  ... and {len(all_annotations) - 10} more")
-    
-    # Analyze frequency content
-    print(f"\nFrequency Analysis for C3:")
-    freq_info = emulator.analyze_frequency_content('C3')
-    if freq_info:
-        for band, power_info in freq_info['band_powers'].items():
-            print(f"  {band:6s}: {power_info['relative_power']:5.1f}% of total power")
-    
-    # Test data reading with annotation detection
-    print(f"\nReading 5 seconds of data (annotations will be detected automatically)...")
-    chunks_read = 0
-    for i in range(250):  # 5 seconds at 50 chunks/second
-        data = emulator.get_data()
-        if data is not None:
-            chunks_read += 1
-        else:
-            break
-    
-    print(f"  Read {chunks_read} chunks successfully")
+    # Test classification without broadcasting
+    print(f"\nTesting classification without broadcasting:")
+    emulator.use_classification(0)  # Rest
+    emulator.use_classification(1)  # Motor Imagery
     
     # Cleanup
     emulator.disconnect()
     
+    # Test with broadcasting
+    print("\n" + "="*50)
+    print("2. Testing with broadcasting:")
+    try:
+        emulator_broadcast = Emulator(fileName="MIT33", auto_scale=True, verbose=True, broadcast=True)
+        
+        # Initialize
+        fs, ch_names, n_channels, _ = emulator_broadcast.initialize_connection()
+        
+        # Get server status
+        server_status = emulator_broadcast.get_server_status()
+        print(f"\nServer Status:")
+        print(f"  Broadcasting enabled: {server_status['broadcasting_enabled']}")
+        print(f"  Server initialized: {server_status['server_initialized']}")
+        
+        # Test classification with broadcasting
+        print(f"\nTesting classification with broadcasting:")
+        emulator_broadcast.use_classification(0)  # Rest
+        emulator_broadcast.use_classification(1)  # Motor Imagery (should send TAP)
+        
+        # Test custom message
+        print(f"\nTesting custom message:")
+        emulator_broadcast.send_custom_message("CUSTOM_COMMAND")
+        
+        # Cleanup
+        emulator_broadcast.disconnect()
+        
+    except ImportError:
+        print("TCP_Server module not available - broadcasting feature cannot be tested")
+        print("Make sure the 'broadcasting' module with TCP_Server is available")
+    except Exception as e:
+        print(f"Error testing broadcasting: {e}")
+    
     print("\nTest completed!")
 
 
+def quick_test():
+    """Quick test without broadcasting for basic functionality"""
+    print("Quick Test - Enhanced Virtual Receiver")
+    print("=" * 40)
+    
+    # Create emulator without broadcasting
+    emulator = Emulator(fileName="MIT33", auto_scale=True, verbose=True, broadcast=False)
+    
+    # Initialize
+    fs, ch_names, n_channels, _ = emulator.initialize_connection()
+    
+    # Read a few chunks
+    print(f"\nReading 2 seconds of data...")
+    for i in range(100):  # 2 seconds at 50 chunks/second
+        data = emulator.get_data()
+        if data is None:
+            break
+    
+    # Test classification
+    emulator.use_classification(1)
+    
+    # Cleanup
+    emulator.disconnect()
+    
+    print("Quick test completed!")
+
+
 if __name__ == "__main__":
-    test_enhanced_emulator()
+    # Run quick test by default, full test with broadcasting if TCP_Server is available
+    try:
+        from broadcasting import TCP_Server
+        test_enhanced_emulator_with_broadcasting()
+    except ImportError:
+        print("TCP_Server not available, running quick test without broadcasting...")
+        quick_test()

@@ -140,7 +140,7 @@ class BCIGUI:
         self.threshold_var = tk.DoubleVar(value=self.bci_system.erd_detector.baseline_power[0] 
                                           if self.bci_system.erd_detector.baseline_power 
                                           else 60.0)
-        self.threshold_slider = ttk.Scale(threshold_frame, from_=10, to=100, 
+        self.threshold_slider = ttk.Scale(threshold_frame, from_=5, to=100, 
                                          variable=self.threshold_var, 
                                          orient=tk.HORIZONTAL,
                                          command=self._update_threshold)
@@ -357,7 +357,7 @@ class BCIGUI:
         self.ax = self.fig.add_subplot(111)
         self.ax.set_xlabel('Time (s)')
         self.ax.set_ylabel('ERD (%)')
-        self.ax.set_ylim(-20, 120)
+        self.ax.set_ylim(-100, 100)
         self.ax.grid(True, alpha=0.3)
         
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
@@ -534,6 +534,10 @@ class BCIGUI:
                     
                     if msg['detected']:
                         self.log_status(f"ERD DETECTED! Confidence: {msg.get('confidence', 0):.1f}%")
+                    
+                    # Store annotations if present
+                    if 'annotations' in msg:
+                        self.annotations = msg['annotations']
                 
         except queue.Empty:
             pass
