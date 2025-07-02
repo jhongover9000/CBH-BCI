@@ -63,6 +63,17 @@ class BCIConfig:
     SLIDING_BASELINE = True     # Use sliding baseline that updates continuously (off by default)
     SLIDING_BASELINE_DURATION = 5.0  # seconds of data to use for sliding baseline
     
+    # ERD Calculation Method
+    ERD_CALCULATION_METHOD = 'percentage'  # Options: 'percentage', 'db_correction', 'welch', 'consecutive'
+    BASELINE_CALCULATION_METHOD = 'standard'  # Options: 'standard', 'robust', 'welch'
+    
+    # Consecutive window detection
+    MIN_CONSECUTIVE_WINDOWS = 2  # Minimum consecutive windows for ERD confirmation
+    CONSECUTIVE_WINDOWS = 3  # Buffer size for consecutive window tracking
+    
+    # dB correction scaling
+    DB_SCALE_FACTOR = 10  # Scaling factor for dB to percentage-like display
+
     # Preprocessing settings
     USE_CAR = True  # Common Average Reference
     ARTIFACT_METHOD = 'threshold'  # 'ica' or 'threshold'
@@ -252,6 +263,10 @@ class ERDDetectionSystem:
         self.erd_history = deque(maxlen=100)
         self.last_erd_values = {}
         
+        # Consecutive window tracking for robust detection
+        self.consecutive_window_buffer = deque(maxlen=BCIConfig.CONSECUTIVE_WINDOWS if hasattr(BCIConfig, 'CONSECUTIVE_WINDOWS') else 3)
+        self.power_decrease_count = 0
+        
         # CSP+SVM detector (if enabled)
         self.csp_svm_detector = None
         if BCIConfig.USE_CSP_SVM:
@@ -291,7 +306,7 @@ class ERDDetectionSystem:
                 self.calculate_baseline()
     
     def calculate_baseline(self, main_buffer=None, force=False):
-        """Calculate baseline power with robust method option and moving average"""
+        """Calculate baseline power with multiple methods"""
         if not force and len(self.baseline_buffer) < self.baseline_buffer.maxlen:
             return False
         
@@ -301,7 +316,7 @@ class ERDDetectionSystem:
                 recent_samples = list(main_buffer)
             else:
                 recent_samples = list(main_buffer)[-self.baseline_buffer.maxlen:]
-            baseline_data = np.array(recent_samples)
+            baseline_data = np.array(recent_samples).T
         else:
             if len(self.baseline_buffer) == 0:
                 return False
@@ -314,22 +329,22 @@ class ERDDetectionSystem:
             # Preprocess baseline data
             baseline_data_processed = self.preprocessor.preprocess_data(baseline_data, self.erd_channel_indices)
             
-            # Calculate baseline power
-            if BCIConfig.BASELINE_METHOD == 'robust':
-                # Use robust baseline calculation
+            # Calculate baseline power based on method
+            baseline_method = getattr(BCIConfig, 'BASELINE_CALCULATION_METHOD', 'standard')
+            
+            if baseline_method == 'robust':
                 current_baseline_power = self._calculate_robust_baseline(baseline_data_processed)
+            elif baseline_method == 'welch':
+                current_baseline_power = self._calculate_welch_baseline(baseline_data_processed)
             else:
                 # Standard baseline calculation
                 current_baseline_power = self.preprocessor.calculate_band_power(baseline_data_processed)
             
             self.baseline_power = current_baseline_power
-            
             self.baseline_calculated = True
             
             if BCIConfig.VERBOSE:
-                print(f"Baseline calculated using {BCIConfig.BASELINE_METHOD} method")
-                if BCIConfig.USE_MOVING_AVERAGE:
-                    print(f"  Moving average applied over {len(self.baseline_ma_buffer)} windows")
+                print(f"Baseline calculated using {baseline_method} method")
                 for i, ch_idx in enumerate(self.erd_channel_indices):
                     print(f"  {self.channel_names[ch_idx]}: {self.baseline_power[i]:.6f}")
             
@@ -341,12 +356,10 @@ class ERDDetectionSystem:
     
     def _calculate_robust_baseline(self, data):
         """Calculate robust baseline power"""
-        # Calculate power for multiple time segments
-        segment_size = int(self.fs * 2)  # 2-second segments
+        segment_size = int(self.fs * 0.5)  # 0.5-second segments
         n_segments = data.shape[1] // segment_size
         
         if n_segments < 2:
-            # Not enough data for robust calculation, use standard
             return self.preprocessor.calculate_band_power(data)
         
         segment_powers = []
@@ -362,38 +375,56 @@ class ERDDetectionSystem:
         # Apply robust method
         if BCIConfig.ROBUST_METHOD == 'trimmed_mean':
             # Remove top and bottom 10%
-            return RobustBaseline._trimmed_mean(segment_powers.T, trim_percent=0.1)
+            return self._trimmed_mean(segment_powers.T, trim_percent=0.1)
         elif BCIConfig.ROBUST_METHOD == 'median':
             return np.median(segment_powers, axis=0)
         else:
             return np.mean(segment_powers, axis=0)
     
+    def _calculate_welch_baseline(self, data):
+        """Calculate baseline power using Welch's method"""
+        powers = []
+        
+        for ch in range(data.shape[0]):
+            freqs, psd = signal.welch(data[ch, :], 
+                              fs=self.fs, 
+                              nperseg=min(len(data[ch, :]), int(self.fs)))
+            
+            # Find frequency band
+            band_mask = (freqs >= BCIConfig.ERD_BAND[0]) & (freqs <= BCIConfig.ERD_BAND[1])
+            band_power = np.mean(psd[band_mask])
+            powers.append(band_power)
+        
+        return np.array(powers)
+    
+    def _trimmed_mean(self, data, trim_percent=0.1):
+        """Calculate trimmed mean"""
+        sorted_data = np.sort(data, axis=0)
+        n_trim = int(data.shape[0] * trim_percent)
+        if n_trim > 0:
+            trimmed = sorted_data[n_trim:-n_trim, :]
+        else:
+            trimmed = sorted_data
+        return np.mean(trimmed, axis=0)
+    
     def detect_erd(self, data, main_buffer=None):
-        """Detect ERD in operating window with moving average smoothing and optional sliding baseline"""
-        # Use sliding baseline if enabled and main buffer provided
+        """Detect ERD with multiple calculation methods"""
+        # Use sliding baseline if enabled
         if BCIConfig.SLIDING_BASELINE and main_buffer is not None:
-            # Calculate baseline from recent data
             sliding_samples = int(BCIConfig.SLIDING_BASELINE_DURATION * self.fs)
             
             if len(main_buffer) >= sliding_samples:
-                # Get recent data for baseline (excluding current window)
                 window_size = data.shape[1]
                 if len(main_buffer) > sliding_samples + window_size:
-                    # Get data from before the current window
                     baseline_start = -(sliding_samples + window_size)
                     baseline_end = -window_size
                     recent_samples = list(main_buffer)[baseline_start:baseline_end]
                 else:
-                    # Use what we have, but exclude current window
                     recent_samples = list(main_buffer)[:-window_size]
                 
-                if len(recent_samples) > self.fs:  # At least 1 second
-                    # Calculate sliding baseline
+                if len(recent_samples) > self.fs:
                     baseline_data = np.array(recent_samples).T
                     self.calculate_baseline(force=True, main_buffer=deque(baseline_data))
-                    
-                # if BCIConfig.VERBOSE:
-                #     print(f"Sliding baseline updated using {len(recent_samples)/self.fs:.1f}s of data")
         
         # Check if we have a valid baseline
         if not self.baseline_calculated or self.baseline_power is None:
@@ -403,19 +434,18 @@ class ERDDetectionSystem:
             # Preprocess data
             erd_data = self.preprocessor.preprocess_data(data, self.erd_channel_indices)
             
-            # Calculate current power
-            current_power = self.preprocessor.calculate_band_power(erd_data)
+            # Choose ERD calculation method
+            erd_method = getattr(BCIConfig, 'ERD_CALCULATION_METHOD', 'percentage')
             
-            # Calculate ERD percentage for each channel
-            current_erd_values = {}
-            
-            for i, ch_idx in enumerate(self.erd_channel_indices):
-                if self.baseline_power[i] > 0:
-                    erd_percent = ((self.baseline_power[i] - current_power[i]) / 
-                                  self.baseline_power[i]) * 100
-                    
-                    ch_name = self.channel_names[ch_idx]
-                    current_erd_values[ch_name] = erd_percent
+            if erd_method == 'db_correction':
+                current_erd_values = self._calculate_erd_db_correction(erd_data)
+            elif erd_method == 'welch':
+                current_erd_values = self._calculate_erd_welch(erd_data)
+            elif erd_method == 'consecutive':
+                current_erd_values = self._calculate_erd_consecutive(erd_data)
+            else:
+                # Standard percentage method
+                current_erd_values = self._calculate_erd_percentage(erd_data)
             
             # Calculate average ERD across channels
             current_avg_erd = np.mean(list(current_erd_values.values())) if current_erd_values else 0.0
@@ -423,27 +453,22 @@ class ERDDetectionSystem:
             
             # Apply moving average if enabled
             if BCIConfig.USE_MOVING_AVERAGE:
+                self.erd_ma_buffer.append(current_erd_values)
                 
                 # Calculate smoothed ERD values
                 smoothed_erd_values = {}
                 
                 if len(self.erd_ma_buffer) > 0:
-                    # Average each channel across the buffer
                     for ch_name in current_erd_values.keys():
                         values = [window.get(ch_name, 0) for window in self.erd_ma_buffer]
                         smoothed_erd_values[ch_name] = np.mean(values)
                     
-                    # Use smoothed values for detection
                     erd_values = smoothed_erd_values
                     avg_erd = smoothed_erd_values.get('avg', 0)
-                    
-                    # if BCIConfig.VERBOSE and len(self.erd_ma_buffer) == BCIConfig.ERD_MA_WINDOWS:
-                    #     print(f"ERD MA: Current={current_avg_erd:.1f}%, Smoothed={avg_erd:.1f}%")
                 else:
                     erd_values = current_erd_values
                     avg_erd = current_avg_erd
             else:
-                # No moving average, use current values
                 erd_values = current_erd_values
                 avg_erd = current_avg_erd
             
@@ -464,16 +489,10 @@ class ERDDetectionSystem:
             if self.csp_svm_detector and self.csp_svm_detector.is_trained:
                 csp_pred, csp_conf = self.csp_svm_detector.predict(erd_data)
                 if csp_pred is not None:
-                    # Combine CSP+SVM with ERD detection
-                    # SVM confidence (0-1) is weighted with ERD percentage (0-100)
-                    combined_conf = ( (0 * (csp_conf)) + (1 * (avg_erd/100) ) )
                     combined_conf = csp_conf
                     detected = combined_conf > 0.5
                     erd_values['csp_conf'] = csp_conf * 100
                     erd_values['combined_conf'] = combined_conf * 100
-                    
-                    # if BCIConfig.VERBOSE:
-                    #     print(f"Detection: ERD={((avg_erd)):.1f}%, SVM={csp_conf:.2f}, Combined={combined_conf:.2f}")
                     
                     return detected, erd_values, combined_conf * 100
             
@@ -484,6 +503,105 @@ class ERDDetectionSystem:
                 print(f"Error in ERD detection: {e}")
             return False, {}, 0.0
     
+    def _calculate_erd_percentage(self, data):
+        """Standard percentage-based ERD calculation"""
+        current_power = self.preprocessor.calculate_band_power(data)
+        
+        erd_values = {}
+        for i, ch_idx in enumerate(self.erd_channel_indices):
+            if self.baseline_power[i] > 0:
+                erd_percent = ((self.baseline_power[i] - current_power[i]) / 
+                              self.baseline_power[i]) * 100
+                ch_name = self.channel_names[ch_idx]
+                erd_values[ch_name] = erd_percent
+        
+        return erd_values
+    
+    def _calculate_erd_db_correction(self, data):
+        """Calculate ERD using dB correction method"""
+        current_power = self.preprocessor.calculate_band_power(data)
+        
+        erd_values = {}
+        for i, ch_idx in enumerate(self.erd_channel_indices):
+            if self.baseline_power[i] > 0 and current_power[i] > 0:
+                # ERD in dB: 10 * log10(current/baseline)
+                # Negative values indicate desynchronization
+                erd_db = 10 * np.log10(current_power[i] / self.baseline_power[i])
+                # Convert to percentage-like scale for consistency
+                # More negative dB = stronger ERD = higher positive percentage
+                erd_percent = -erd_db * 10  # Scale factor for display
+                ch_name = self.channel_names[ch_idx]
+                erd_values[ch_name] = erd_percent
+            else:
+                ch_name = self.channel_names[ch_idx]
+                erd_values[ch_name] = 0.0
+        
+        return erd_values
+    
+    def _calculate_erd_welch(self, data):
+        """Calculate ERD using Welch's method for current window"""
+        erd_values = {}
+        
+        for i, ch_idx in enumerate(self.erd_channel_indices):
+            # Calculate PSD for current window
+            freqs, psd = signal.welch(data[i, :], 
+                              fs=self.fs, 
+                              nperseg=min(len(data[i, :]), int(self.fs/2)))
+            
+            # Get power in ERD band
+            band_mask = (freqs >= BCIConfig.ERD_BAND[0]) & (freqs <= BCIConfig.ERD_BAND[1])
+            current_power = np.mean(psd[band_mask])
+            
+            if self.baseline_power[i] > 0:
+                erd_percent = ((self.baseline_power[i] - current_power) / 
+                              self.baseline_power[i]) * 100
+                ch_name = self.channel_names[ch_idx]
+                erd_values[ch_name] = erd_percent
+            else:
+                ch_name = self.channel_names[ch_idx]
+                erd_values[ch_name] = 0.0
+        
+        return erd_values
+    
+    def _calculate_erd_consecutive(self, data):
+        """Calculate ERD with consecutive window validation"""
+        # Calculate current ERD
+        current_erd_values = self._calculate_erd_percentage(data)
+        
+        # Add to consecutive window buffer
+        self.consecutive_window_buffer.append(current_erd_values)
+        
+        # Check if we have enough windows
+        min_consecutive = getattr(BCIConfig, 'MIN_CONSECUTIVE_WINDOWS', 2)
+        
+        if len(self.consecutive_window_buffer) < min_consecutive:
+            # Not enough windows yet, return zero ERD
+            return {ch: 0.0 for ch in current_erd_values.keys()}
+        
+        # Check for consecutive ERD detections
+        validated_erd = {}
+        
+        for ch_name in current_erd_values.keys():
+            if ch_name == 'avg':
+                continue
+                
+            # Get ERD values for this channel across all windows
+            ch_erds = [window.get(ch_name, 0) for window in self.consecutive_window_buffer]
+            
+            # Count how many consecutive windows show ERD
+            consecutive_count = 0
+            for erd in ch_erds[-min_consecutive:]:
+                if erd > BCIConfig.ERD_THRESHOLD:
+                    consecutive_count += 1
+            
+            # Only report ERD if minimum consecutive windows show it
+            if consecutive_count >= min_consecutive:
+                validated_erd[ch_name] = current_erd_values[ch_name]
+            else:
+                validated_erd[ch_name] = 0.0
+        
+        return validated_erd
+    
     def reset_baseline(self):
         """Reset baseline buffer and calculations"""
         self.baseline_buffer.clear()
@@ -492,6 +610,8 @@ class ERDDetectionSystem:
         self.baseline_ma_buffer.clear()
         self.erd_ma_buffer.clear()
         self.smoothed_baseline_power = None
+        self.consecutive_window_buffer.clear()
+        self.power_decrease_count = 0
 
 
 # =============================================================
@@ -595,6 +715,8 @@ class BCISystem:
         print("  d - Toggle sliding baseline")
         print("  + - Increase ERD MA windows")
         print("  - - Decrease ERD MA windows")
+        print("  e - Cycle ERD calculation method")
+        print("  w - Cycle baseline calculation method")
         print("  0 - Start collecting REST data (CSP+SVM)")
         print("  1 - Start collecting MI data (CSP+SVM)")
         print("  9 - Stop collecting training data")
@@ -803,6 +925,19 @@ class BCISystem:
                 self._load_csp_model()
             elif key == 'q':
                 self.running = False
+            elif key == 'e':
+                # Cycle through ERD calculation methods
+                methods = ['percentage', 'db_correction', 'welch', 'consecutive']
+                current_idx = methods.index(BCIConfig.ERD_CALCULATION_METHOD)
+                BCIConfig.ERD_CALCULATION_METHOD = methods[(current_idx + 1) % len(methods)]
+                print(f"ERD calculation method: {BCIConfig.ERD_CALCULATION_METHOD}")
+            
+            elif key == 'w':
+                # Cycle through baseline calculation methods  
+                methods = ['standard', 'robust', 'welch']
+                current_idx = methods.index(BCIConfig.BASELINE_CALCULATION_METHOD)
+                BCIConfig.BASELINE_CALCULATION_METHOD = methods[(current_idx + 1) % len(methods)]
+                print(f"Baseline calculation method: {BCIConfig.BASELINE_CALCULATION_METHOD}")
                 
             return collection_mode
             
@@ -1097,6 +1232,12 @@ def main():
                        help="Duration for sliding baseline (seconds)")
     parser.add_argument('--verbose', action='store_true',
                        help="Verbose output")
+    parser.add_argument('--erd-method', choices=['percentage', 'db_correction', 'welch', 'consecutive'],
+                   default='percentage', help="ERD calculation method")
+    parser.add_argument('--baseline-method', choices=['standard', 'robust', 'welch'],
+                    default='standard', help="Baseline calculation method")
+    parser.add_argument('--consecutive-windows', type=int, default=2,
+                    help="Minimum consecutive windows for ERD detection")
     
     args = parser.parse_args()
     
@@ -1120,6 +1261,9 @@ def main():
     BCIConfig.SLIDING_BASELINE = args.sliding_baseline
     BCIConfig.SLIDING_BASELINE_DURATION = args.sliding_duration
     BCIConfig.BROADCAST_ENABLED = args.broadcast
+    BCIConfig.ERD_CALCULATION_METHOD = args.erd_method
+    BCIConfig.BASELINE_CALCULATION_METHOD = args.baseline_method
+    BCIConfig.MIN_CONSECUTIVE_WINDOWS = args.consecutive_windows
     
     # Validate overlap
     if not 0 <= BCIConfig.WINDOW_OVERLAP < 1:
