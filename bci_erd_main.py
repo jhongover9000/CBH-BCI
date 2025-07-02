@@ -58,8 +58,8 @@ class BCIConfig:
     USE_MOVING_AVERAGE = False    # enable moving average smoothing
     
     # Baseline settings
-    BASELINE_METHOD = 'robust'  # 'standard' or 'robust'
-    ROBUST_METHOD = 'median'  # for robust baseline
+    BASELINE_METHOD = 'standard'  # 'standard' or 'robust'
+    ROBUST_METHOD = 'mean'  # for robust baseline
     SLIDING_BASELINE = True     # Use sliding baseline that updates continuously (off by default)
     SLIDING_BASELINE_DURATION = 5.0  # seconds of data to use for sliding baseline
     

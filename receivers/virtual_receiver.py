@@ -13,7 +13,7 @@ import threading
 data_dir = "./data/rawdata/cbh/"
 
 class Emulator:
-    def __init__(self, fileName="TEST_NATTY", auto_scale=False, verbose=False, broadcast=False):
+    def __init__(self, fileName="CBH0014", auto_scale=False, verbose=False, broadcast=False):
         self.vhdr_file = f"{data_dir}{fileName}.vhdr"
         self.eeg_file = f"{data_dir}{fileName}.eeg"
         self.channel_count = 0

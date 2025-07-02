@@ -18,7 +18,9 @@ end
 
 %% Define parameters
 nSubject = 1;  % Number of subjects
-filename = 'REST';  % or choose a specific file
+filename = 'CBH0014';  % or choose a specific file
+firstHalf = true;   % Set to true to epoch first 20 instances
+lastHalf = false;   % Set to true to epoch last 20 instances
 
 % Define events of interest
 events = {'S  3', 'MI';    % Motor Imagery
@@ -40,7 +42,7 @@ for sub = 1:nSubject
     if (filename == "")
         set_file = [path_to_rawdata 'MIT' int2str(sub) '.vhdr'];
     else
-        set_file = [path_to_rawdata 'TEST_' filename '.vhdr'];
+        set_file = [path_to_rawdata '' filename '.vhdr'];
     end
     
     display(set_file)
@@ -149,12 +151,28 @@ for sub = 1:nSubject
     EEG = eeg_checkset(EEG);
     
     %% Clean events
-    % Remove empty markers
+    % Remove empty markers, fix broken ones
     del = 0;
     for j = 1:size(EEG.event, 2)
         if strcmp(EEG.event(j-del).type, 'empty')
             EEG.event(j-del) = [];
             del = del + 1;
+        end
+    end
+    
+    countMI = 0;
+    countRest = 0;
+    for j = 1:size(EEG.event, 2)
+        % issue in initial Unity code sent S3 instead of S7 for gold coins
+        if strcmp(EEG.event(j).type, 'S  3')
+            countMI = countMI + 1;
+            sprintf( 'Prev marker: %s', EEG.event(j + 1).type );
+            if(strcmp(EEG.event(j - 1).type, 'S  2') == 0)
+                sprintf( 'Prev marker: %s', EEG.event(j + 1).type );
+                EEG.event(j).type = 'S  7';
+            end
+        elseif strcmp(EEG.event(j).type, 'S  4')
+            countRest = countRest + 1;
         end
     end
     
@@ -164,13 +182,46 @@ for sub = 1:nSubject
     for evt = 1:size(events, 1)
         
         % Create filename
-        epoch_file = sprintf('TEST_%s_%d_%s.set', filename, sub, events{evt, 2});
+        epoch_file = sprintf('%s_%d_%s.set', filename, sub, events{evt, 2});
         
         % Extract epochs
         fprintf('Processing %s condition...\n', events{evt, 2});
+
+        events_only = find(strcmp({EEG.event.type}, events(evt,1)));
         
-        % Epoch around event
-        epoch = pop_epoch(EEG, events(evt, 1), epoch_period, 'epochinfo', 'yes');
+        % Select events based on firstHalf/lastHalf flags
+        if firstHalf == true
+            selected = events_only(1:min(20, length(events_only)));
+            fprintf('  - Selecting first 20 events (total available: %d)\n', length(events_only));
+        elseif lastHalf == true
+            if length(events_only) >= 20
+                selected = events_only(end-19:end);
+            else
+                selected = events_only;
+            end
+            fprintf('  - Selecting last 20 events (total available: %d)\n', length(events_only));
+        else
+            selected = events_only;
+            fprintf('  - Selecting all events (total: %d)\n', length(events_only));
+        end
+        
+        % Temporarily modify event types for selected events to create unique identifiers
+        temp_event_type = sprintf('TEMP_%s', events{evt, 2});
+        original_types = cell(length(selected), 1);
+        
+        % Store original types and set temporary types for selected events
+        for i = 1:length(selected)
+            original_types{i} = EEG.event(selected(i)).type;
+            EEG.event(selected(i)).type = temp_event_type;
+        end
+        
+        % Epoch around the temporarily renamed events
+        epoch = pop_epoch(EEG, {temp_event_type}, epoch_period, 'epochinfo', 'yes');
+        
+        % Restore original event types in the main EEG structure
+        for i = 1:length(selected)
+            EEG.event(selected(i)).type = original_types{i};
+        end
         
         % Apply baseline correction
         epoch = pop_rmbase(epoch, baseline_period);

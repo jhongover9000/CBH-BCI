@@ -8,7 +8,7 @@ close all;
 clc;
 
 %% Parameters
-expTitle = "TEST_REST";
+expTitle = "CBH0014";
 nSubject = 1;
 nChannels = 60;
 SR = 250;  % Sampling rate
@@ -137,17 +137,16 @@ save('tf_Rest_db.mat', 'tf_Rest_db', '-v7.3');
 fprintf('Creating topography plots...\n');
 
 % Load channel locations
-load EEG_chlocs_60.mat
+load reference/EEG_chlocs_60.mat
 
 % Define time windows for topography (10 bins from 0 to 2000ms)
-topo_start = -150;  % 0ms
-topo_end = 2*SR;  % 2000ms
-
-bin_width = (topo_end - topo_start) / n_bins;
-n_bins = 20;
+topo_start = -125;  % 0ms
+topo_end = 3*SR;  % 2000ms
+bin_width = 125;
+n_bins = (topo_end - topo_start) / bin_width;
 
 % Frequency band of interest (e.g., alpha band 8-13 Hz)
-freq_band = [8 30];
+freq_band = [8 13];
 freq_idx = find(frex >= freq_band(1) & frex <= freq_band(2));
 
 % Color limits for topography
@@ -155,7 +154,7 @@ clim = [-3 3];
 
 % Create figure for topography
 figure('Position', [100 100 1400 600]);
-sgtitle('Topography: Alpha Band (8-13 Hz) Power', 'FontSize', 16);
+sgtitle(['Topography: ' int2str(freq_band(1)) 'Hz'], 'FontSize', 16);
 
 % MI condition
 for i = 1:n_bins
@@ -176,7 +175,7 @@ for i = 1:n_bins
         'colormap', jet, ...
         'style', 'both');
     
-    title(sprintf('MI: %d-%d ms', round(t_start), round(t_end)), 'FontSize', 10);
+    title(sprintf('MI: %d-%d ms', round(t_start* 1000/SR), round(t_end* 1000/SR)), 'FontSize', 10);
 end
 
 % Rest condition
@@ -198,7 +197,7 @@ for i = 1:n_bins
         'colormap', jet, ...
         'style', 'both');
     
-    title(sprintf('Rest: %d-%d ms', round(t_start), round(t_end)), 'FontSize', 10);
+    title(sprintf('Rest: %d-%d ms', round(t_start* 1000/SR), round(t_end* 1000/SR)), 'FontSize', 10);
 end
 
 colorbar('Position', [0.92 0.25 0.02 0.5]);

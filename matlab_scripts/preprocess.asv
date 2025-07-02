@@ -18,7 +18,7 @@ end
 
 %% Define parameters
 nSubject = 1;  % Number of subjects
-filename = 'FIXATION';  % or choose a specific file
+filename = 'CBH0014';  % or choose a specific file
 
 % Define events of interest
 events = {'S  3', 'MI';    % Motor Imagery
@@ -40,7 +40,7 @@ for sub = 1:nSubject
     if (filename == "")
         set_file = [path_to_rawdata 'MIT' int2str(sub) '.vhdr'];
     else
-        set_file = [path_to_rawdata 'TEST_' filename '.vhdr'];
+        set_file = [path_to_rawdata '' filename '.vhdr'];
     end
     
     display(set_file)
@@ -149,7 +149,7 @@ for sub = 1:nSubject
     EEG = eeg_checkset(EEG);
     
     %% Clean events
-    % Remove empty markers
+    % Remove empty markers, fix broken ones
     del = 0;
     for j = 1:size(EEG.event, 2)
         if strcmp(EEG.event(j-del).type, 'empty')
@@ -158,13 +158,31 @@ for sub = 1:nSubject
         end
     end
     
+    countMI = 0;
+    countRest = 0;
+    for j = 1:size(EEG.event, 2)
+        % issue in initial Unity code sent S3 instead of S7 for gold coins
+        if strcmp(EEG.event(j).type, 'S  3')
+            countMI = countMI + 1;
+            sprintf( 'Prev marker: %s', EEG.event(j + 1).type );
+            if(strcmp(EEG.event(j - 1).type, 'S  2') == 0)
+                sprintf( 'Prev marker: %s', EEG.event(j + 1).type );
+                EEG.event(j).type = 'S  7';
+            end
+        elseif strcmp(EEG.event(j).type, 'S  4')
+            countRest = countRest + 1;
+        end
+
+        if(countMI )
+    end
+    
     %% Epoching for MI and Rest conditions
     fprintf('Epoching data...\n');
     
     for evt = 1:size(events, 1)
         
         % Create filename
-        epoch_file = sprintf('TEST_%s_%d_%s.set', filename, sub, events{evt, 2});
+        epoch_file = sprintf('%s_%d_%s.set', filename, sub, events{evt, 2});
         
         % Extract epochs
         fprintf('Processing %s condition...\n', events{evt, 2});

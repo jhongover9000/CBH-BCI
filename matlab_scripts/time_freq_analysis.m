@@ -8,7 +8,7 @@ close all;
 clc;
 
 %% Parameters
-expTitle = "TEST_REST";
+expTitle = "CBH0014";
 nSubject = 1;
 nChannels = 60;
 SR = 250;  % Sampling rate
@@ -35,7 +35,7 @@ half_wave = (length(wavtime)-1)/2;
 % Time parameters
 epoch_period = [-2 3];  % -2 to 3 seconds
 nTimes = diff(epoch_period) * SR;
-times = epoch_period(1)*SR:epoch_period(2)*SR; % -2000 to 2999 ms
+times = epoch_period(1)*SR:epoch_period(2)*SR-1; % -2000 to 2999 ms
 
 % Baseline for dB conversion
 baseline_window = [-0.5*SR 0];  % -500ms to 0ms
@@ -137,7 +137,7 @@ save('tf_Rest_db.mat', 'tf_Rest_db', '-v7.3');
 fprintf('Creating topography plots...\n');
 
 % Load channel locations
-load EEG_chlocs_60.mat
+load reference/EEG_chlocs_60.mat
 
 % Define time windows for topography (10 bins from 0 to 2000ms)
 topo_start = -125;  % 0ms
@@ -146,7 +146,7 @@ bin_width = 125;
 n_bins = (topo_end - topo_start) / bin_width;
 
 % Frequency band of interest (e.g., alpha band 8-13 Hz)
-freq_band = [8 30];
+freq_band = [8 13];
 freq_idx = find(frex >= freq_band(1) & frex <= freq_band(2));
 
 % Color limits for topography
@@ -154,7 +154,7 @@ clim = [-3 3];
 
 % Create figure for topography
 figure('Position', [100 100 1400 600]);
-sgtitle('Topography:' + int2str(freq_band) + 'Power', 'FontSize', 16);
+sgtitle(['Topography: ' int2str(freq_band(1)) ' to ' int2str(freq_band(2)) 'Hz'], 'FontSize', 16);
 
 % MI condition
 for i = 1:n_bins
@@ -207,7 +207,7 @@ set(gcf, 'color', 'w');
 fprintf('Creating time-frequency plots...\n');
 
 % Define channels of interest (e.g., motor areas)
-channels_of_interest = {'C3', 'C4', 'Cz', 'FC1', 'FC2', 'FCz'};
+channels_of_interest = {'C3'};
 
 % Find channel indices
 ch_idx = [];
@@ -226,7 +226,7 @@ colormap(jet);
 subplot(2,2,1);
 tf_data = squeeze(mean(mean(tf_MI_db(:, :, :, ch_idx), 1), 4));
 contourf(times, frex, tf_data, 40, 'linecolor', 'none');
-set(gca, 'clim', [-2 2], 'ydir', 'normal', 'xlim', [-500 2500], 'yscale', 'log');
+set(gca, 'clim', [-2 2], 'ydir', 'normal', 'xlim', [-500 750], 'yscale', 'log');
 ylim([2 50]);
 xlabel('Time (ms)');
 ylabel('Frequency (Hz)');
@@ -239,7 +239,7 @@ colorbar;
 subplot(2,2,2);
 tf_data = squeeze(mean(mean(tf_Rest_db(:, :, :, ch_idx), 1), 4));
 contourf(times, frex, tf_data, 40, 'linecolor', 'none');
-set(gca, 'clim', [-2 2], 'ydir', 'normal', 'xlim', [-500 2500], 'yscale', 'log');
+set(gca, 'clim', [-2 2], 'ydir', 'normal', 'xlim', [-500 750], 'yscale', 'log');
 ylim([2 50]);
 xlabel('Time (ms)');
 ylabel('Frequency (Hz)');
@@ -253,7 +253,7 @@ subplot(2,2,3);
 tf_diff = squeeze(mean(mean(tf_MI_db(:, :, :, ch_idx), 1), 4)) - ...
           squeeze(mean(mean(tf_Rest_db(:, :, :, ch_idx), 1), 4));
 contourf(times, frex, tf_diff, 40, 'linecolor', 'none');
-set(gca, 'clim', [-1 1], 'ydir', 'normal', 'xlim', [-500 2500], 'yscale', 'log');
+set(gca, 'clim', [-1 1], 'ydir', 'normal', 'xlim', [-500 750], 'yscale', 'log');
 ylim([2 50]);
 xlabel('Time (ms)');
 ylabel('Frequency (Hz)');
