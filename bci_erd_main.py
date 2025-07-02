@@ -93,7 +93,7 @@ class BCIConfig:
     SHOW_ANNOTATIONS = True
     
     # Session settings
-    SESSION_DURATION = 600  # seconds
+    SESSION_DURATION = 6000  # seconds
     
     # Advanced features
     USE_CSP_SVM = False
