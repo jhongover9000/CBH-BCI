@@ -137,16 +137,15 @@ class BCIGUI:
         threshold_frame = ttk.LabelFrame(main_frame, text="Threshold Adjustment", padding="10")
         threshold_frame.pack(fill=tk.X, pady=5)
         
-        self.threshold_var = tk.DoubleVar(value=self.bci_system.erd_detector.baseline_power[0] 
-                                          if self.bci_system.erd_detector.baseline_power 
-                                          else 60.0)
-        self.threshold_slider = ttk.Scale(threshold_frame, from_=5, to=100, 
+        from bci_erd_main import BCIConfig
+        self.threshold_var = tk.DoubleVar(value=BCIConfig.ERD_THRESHOLD)
+        self.threshold_slider = ttk.Scale(threshold_frame, from_=-100, to=0, 
                                          variable=self.threshold_var, 
                                          orient=tk.HORIZONTAL,
                                          command=self._update_threshold)
         self.threshold_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         
-        self.threshold_label = ttk.Label(threshold_frame, text="60%")
+        self.threshold_label = ttk.Label(threshold_frame, text=f"{BCIConfig.ERD_THRESHOLD}%")
         self.threshold_label.pack(side=tk.LEFT)
         
         # Moving average controls
@@ -237,7 +236,7 @@ class BCIGUI:
         
         from bci_erd_main import BCIConfig
         self.threshold_var = tk.DoubleVar(value=BCIConfig.ERD_THRESHOLD)
-        self.threshold_slider = ttk.Scale(settings_frame, from_=10, to=100, 
+        self.threshold_slider = ttk.Scale(settings_frame, from_=-100, to=0, 
                                          variable=self.threshold_var, 
                                          orient=tk.HORIZONTAL,
                                          command=self._update_threshold)
@@ -360,6 +359,9 @@ class BCIGUI:
         self.ax.set_ylim(-100, 100)
         self.ax.grid(True, alpha=0.3)
         
+        # Add zero line
+        self.ax.axhline(y=0, color='gray', linestyle='-', alpha=0.5)
+        
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
@@ -371,6 +373,9 @@ class BCIGUI:
         from bci_erd_main import BCIConfig
         self.threshold_line = self.ax.axhline(y=BCIConfig.ERD_THRESHOLD, color='k', 
                                              linestyle='--', alpha=0.5, label='Threshold')
+        
+        # Annotation scatter for plotting annotation markers
+        self.annotation_scatter = None
     
     def _create_training_tab(self, parent):
         """Create CSP+SVM training tab"""
@@ -416,9 +421,12 @@ class BCIGUI:
     
     def _update_threshold(self, value):
         """Update threshold value"""
-        from bci_erd_main import BCIConfig
-        BCIConfig.ERD_THRESHOLD = float(value)
+        self.bci_system.erd_detector.erd_threshold = float(value)
         self.threshold_label.config(text=f"{float(value):.0f}%")
+        
+        # Update the BCI system's threshold directly if it's initialized
+        if hasattr(self.bci_system, 'erd_detector') and self.bci_system.erd_detector:
+            self.bci_system.erd_detector.erd_threshold = float(value)
         
         # Update plot threshold line if available
         if hasattr(self, 'threshold_line'):
@@ -446,8 +454,16 @@ class BCIGUI:
         from bci_erd_main import BCIConfig
         if hasattr(self, 'erd_ma_var'):
             BCIConfig.ERD_MA_WINDOWS = self.erd_ma_var.get()
+            # Update the detector's MA buffer size
+            if hasattr(self.bci_system, 'erd_detector') and self.bci_system.erd_detector:
+                from collections import deque
+                self.bci_system.erd_detector.erd_ma_buffer = deque(maxlen=BCIConfig.ERD_MA_WINDOWS)
         if hasattr(self, 'baseline_ma_var'):
             BCIConfig.BASELINE_MA_WINDOWS = self.baseline_ma_var.get()
+            # Update the detector's baseline MA buffer size
+            if hasattr(self.bci_system, 'erd_detector') and self.bci_system.erd_detector:
+                from collections import deque
+                self.bci_system.erd_detector.baseline_ma_buffer = deque(maxlen=BCIConfig.BASELINE_MA_WINDOWS)
     
     def _update_sliding_duration(self):
         """Update sliding baseline duration"""
@@ -466,6 +482,8 @@ class BCIGUI:
             if hasattr(self, 'time_history'):
                 self.time_history.clear()
                 self.erd_history.clear()
+                self.annotation_markers.clear()
+                self.erd_detection_markers.clear()
             
             # Start BCI system in separate thread
             self.bci_thread = threading.Thread(target=self.bci_system.run)
@@ -560,7 +578,7 @@ class BCIGUI:
         if 'Rate' in self.metrics_labels:
             self.metrics_labels['Rate'].config(text=f"{rate:.1f}/min")
         if 'ERD Avg' in self.metrics_labels:
-            self.metrics_labels['ERD Avg'].config(text=f"{avg_erd:.1f}%")
+            self.metrics_labels['ERD Avg'].config(text=f"{avg_erd:+.1f}%")
         if 'Updates/s' in self.metrics_labels:
             self.metrics_labels['Updates/s'].config(text=f"{update_rate:.1f}")
         
@@ -582,16 +600,18 @@ class BCIGUI:
             self.erd_text.delete(1.0, tk.END)
             for ch, erd in erd_values.items():
                 if ch != 'csp_conf':
-                    status = "DETECT" if erd > self.threshold_var.get() else ""
-                    self.erd_text.insert(tk.END, f"{ch:8s}: {erd:6.1f}% {status}\n")
+                    # Check against negative threshold for detection
+                    status = "DETECT" if erd < self.threshold_var.get() else ""
+                    self.erd_text.insert(tk.END, f"{ch:8s}: {erd:+6.1f}% {status}\n")
         else:
             # Formatted display for full mode
             if hasattr(self, 'erd_display'):
                 self.erd_display.delete(1.0, tk.END)
                 for ch, erd in erd_values.items():
                     if ch != 'csp_conf':
-                        status = "***" if erd > self.threshold_var.get() else "   "
-                        self.erd_display.insert(tk.END, f"{status} {ch:8s}: {erd:6.1f}%\n")
+                        # Check against negative threshold for detection
+                        status = "***" if erd < self.threshold_var.get() else "   "
+                        self.erd_display.insert(tk.END, f"{status} {ch:8s}: {erd:+6.1f}%\n")
     
     def _update_plot(self, data):
         """Update real-time plot"""
@@ -620,6 +640,30 @@ class BCIGUI:
                     self.plot_lines[ch] = line
                 
                 self.plot_lines[ch].set_data(times[-len(values):], list(values))
+            
+            # Update annotations markers
+            if 'annotations' in data and data['annotations']:
+                annotation_times = []
+                annotation_y_values = []
+                
+                # Get current y-axis limits
+                y_min, y_max = self.ax.get_ylim()
+                
+                for ann in data['annotations']:
+                    ann_time = ann['time']
+                    # Only show annotations within the current time window
+                    if times[0] <= ann_time <= times[-1]:
+                        annotation_times.append(ann_time)
+                        # Place annotation markers at top of plot
+                        annotation_y_values.append(y_max * 0.9)
+                
+                # Update or create annotation scatter
+                if annotation_times:
+                    if self.annotation_scatter:
+                        self.annotation_scatter.remove()
+                    self.annotation_scatter = self.ax.scatter(annotation_times, annotation_y_values, 
+                                                            color='red', marker='v', s=100, 
+                                                            alpha=0.7, label='Annotations')
             
             # Update axis limits
             self.ax.set_xlim(max(0, times[-1] - 30), times[-1] + 1)

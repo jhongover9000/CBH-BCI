@@ -40,16 +40,16 @@ class BCIConfig:
     """Central configuration for BCI ERD system"""
     
     # Buffer settings
-    MAIN_BUFFER_DURATION = 20.0      # seconds
-    BASELINE_BUFFER_DURATION = 3.0  # seconds (≤ main buffer)
+    MAIN_BUFFER_DURATION = 10.0      # seconds
+    BASELINE_BUFFER_DURATION = 5.0  # seconds (≤ main buffer)
     OPERATING_WINDOW_DURATION = 1.0  # seconds
     WINDOW_OVERLAP = 0.5            # overlap fraction (0.5 = 50% overlap)
     
     # ERD detection settings
     # ERD_CHANNELS = ['C3','FC3', 'CP3', 'C1', 'C5', 'FC5', 'FC1', 'CP5', 'CP1']
     ERD_CHANNELS = ['C3']
-    ERD_BAND = (8, 15)  # mu band in Hz
-    ERD_THRESHOLD = 40.0  # percent
+    ERD_BAND = (8, 20)  # mu band in Hz
+    ERD_THRESHOLD = -30.0  # percent (negative for desynchronization)
     AVERAGE_ERDS = True  # average electrodes (vs individual ERD check)
     
     # Moving average settings
@@ -58,14 +58,14 @@ class BCIConfig:
     USE_MOVING_AVERAGE = False    # enable moving average smoothing
     
     # Baseline settings
-    BASELINE_METHOD = 'standard'  # 'standard' or 'robust'
-    ROBUST_METHOD = 'mean'  # for robust baseline
-    SLIDING_BASELINE = True     # Use sliding baseline that updates continuously (off by default)
+    BASELINE_METHOD = 'robust'  # 'standard' or 'robust'
+    ROBUST_METHOD = 'trimmed_mean'  # for robust baseline 'median', 'trimmed_mean', 'mean'
+    SLIDING_BASELINE = True     # Use sliding baseline that updates continuously
     SLIDING_BASELINE_DURATION = 5.0  # seconds of data to use for sliding baseline
     
     # ERD Calculation Method
-    ERD_CALCULATION_METHOD = 'percentage'  # Options: 'percentage', 'db_correction', 'welch', 'consecutive'
-    BASELINE_CALCULATION_METHOD = 'standard'  # Options: 'standard', 'robust', 'welch'
+    ERD_CALCULATION_METHOD = 'welch'  # Options: 'percentage', 'db_correction', 'welch', 'consecutive'
+    BASELINE_CALCULATION_METHOD = 'robust'  # Options: 'standard', 'robust', 'welch'
     
     # Consecutive window detection
     MIN_CONSECUTIVE_WINDOWS = 2  # Minimum consecutive windows for ERD confirmation
@@ -253,6 +253,9 @@ class ERDDetectionSystem:
         self.baseline_buffer = deque(maxlen=int(BCIConfig.BASELINE_BUFFER_DURATION * self.fs))
         self.baseline_power = None
         self.baseline_calculated = False
+
+        # ERD Calc
+        self.erd_threshold = BCIConfig.ERD_THRESHOLD
         
         # Moving average buffers
         self.baseline_ma_buffer = deque(maxlen=BCIConfig.BASELINE_MA_WINDOWS)
@@ -307,16 +310,12 @@ class ERDDetectionSystem:
     
     def calculate_baseline(self, main_buffer=None, force=False):
         """Calculate baseline power with multiple methods"""
-        if not force and len(self.baseline_buffer) < self.baseline_buffer.maxlen:
+        if len(self.baseline_buffer) < self.baseline_buffer.maxlen:
             return False
         
         # Prepare baseline data
-        if force or main_buffer is not None:
-            if len(main_buffer) < self.baseline_buffer.maxlen:
-                recent_samples = list(main_buffer)
-            else:
-                recent_samples = list(main_buffer)[-self.baseline_buffer.maxlen:]
-            baseline_data = np.array(recent_samples).T
+        if main_buffer is not None:
+            baseline_data = np.array(main_buffer)
         else:
             if len(self.baseline_buffer) == 0:
                 return False
@@ -329,7 +328,7 @@ class ERDDetectionSystem:
             # Preprocess baseline data
             baseline_data_processed = self.preprocessor.preprocess_data(baseline_data, self.erd_channel_indices)
             
-            # Calculate baseline power based on method
+            # Calculate baseline power based on method - default to 'standard' which uses mean
             baseline_method = getattr(BCIConfig, 'BASELINE_CALCULATION_METHOD', 'standard')
             
             if baseline_method == 'robust':
@@ -337,7 +336,7 @@ class ERDDetectionSystem:
             elif baseline_method == 'welch':
                 current_baseline_power = self._calculate_welch_baseline(baseline_data_processed)
             else:
-                # Standard baseline calculation
+                # Standard baseline calculation using mean
                 current_baseline_power = self.preprocessor.calculate_band_power(baseline_data_processed)
             
             self.baseline_power = current_baseline_power
@@ -372,7 +371,7 @@ class ERDDetectionSystem:
         
         segment_powers = np.array(segment_powers)
         
-        # Apply robust method
+        # Apply robust method - default to mean
         if BCIConfig.ROBUST_METHOD == 'trimmed_mean':
             # Remove top and bottom 10%
             return self._trimmed_mean(segment_powers.T, trim_percent=0.1)
@@ -422,10 +421,8 @@ class ERDDetectionSystem:
                 else:
                     recent_samples = list(main_buffer)[:-window_size]
                 
-                if len(recent_samples) > self.fs:
-                    baseline_data = np.array(recent_samples).T
-                    self.calculate_baseline(force=True, main_buffer=deque(baseline_data))
-        
+                baseline_data = np.array(recent_samples).T
+                self.calculate_baseline(force=True, main_buffer=deque(baseline_data))        
         # Check if we have a valid baseline
         if not self.baseline_calculated or self.baseline_power is None:
             return False, {}, 0.0
@@ -477,11 +474,12 @@ class ERDDetectionSystem:
             self.last_erd_values = erd_values
             
             # Determine detection based on configuration
+            # ERD is negative for desynchronization, so check if below threshold
             detected_channels = [ch for ch, erd in erd_values.items() 
-                               if ch != 'avg' and erd > BCIConfig.ERD_THRESHOLD]
+                               if ch != 'avg' and erd < self.erd_threshold]
             
             if BCIConfig.AVERAGE_ERDS:
-                detected = avg_erd > BCIConfig.ERD_THRESHOLD
+                detected = avg_erd < self.erd_threshold
             else:
                 detected = len(detected_channels) > 0
             
@@ -496,7 +494,10 @@ class ERDDetectionSystem:
                     
                     return detected, erd_values, combined_conf * 100
             
-            return detected, erd_values, avg_erd
+            # Return confidence as absolute value of avg_erd
+            confidence = abs(avg_erd)
+            
+            return detected, erd_values, confidence
             
         except Exception as e:
             if BCIConfig.VERBOSE:
@@ -504,13 +505,15 @@ class ERDDetectionSystem:
             return False, {}, 0.0
     
     def _calculate_erd_percentage(self, data):
-        """Standard percentage-based ERD calculation"""
+        """Standard percentage-based ERD calculation with corrected formula"""
         current_power = self.preprocessor.calculate_band_power(data)
         
         erd_values = {}
         for i, ch_idx in enumerate(self.erd_channel_indices):
             if self.baseline_power[i] > 0:
-                erd_percent = ((self.baseline_power[i] - current_power[i]) / 
+                # Corrected formula: (activity - baseline) / baseline * 100
+                # ERD will be negative for desynchronization
+                erd_percent = ((current_power[i] - self.baseline_power[i]) / 
                               self.baseline_power[i]) * 100
                 ch_name = self.channel_names[ch_idx]
                 erd_values[ch_name] = erd_percent
@@ -527,9 +530,8 @@ class ERDDetectionSystem:
                 # ERD in dB: 10 * log10(current/baseline)
                 # Negative values indicate desynchronization
                 erd_db = 10 * np.log10(current_power[i] / self.baseline_power[i])
-                # Convert to percentage-like scale for consistency
-                # More negative dB = stronger ERD = higher positive percentage
-                erd_percent = -erd_db * 10  # Scale factor for display
+                # Convert to percentage scale
+                erd_percent = erd_db * BCIConfig.DB_SCALE_FACTOR
                 ch_name = self.channel_names[ch_idx]
                 erd_values[ch_name] = erd_percent
             else:
@@ -553,7 +555,8 @@ class ERDDetectionSystem:
             current_power = np.mean(psd[band_mask])
             
             if self.baseline_power[i] > 0:
-                erd_percent = ((self.baseline_power[i] - current_power) / 
+                # Corrected formula
+                erd_percent = ((current_power - self.baseline_power[i]) / 
                               self.baseline_power[i]) * 100
                 ch_name = self.channel_names[ch_idx]
                 erd_values[ch_name] = erd_percent
@@ -588,10 +591,10 @@ class ERDDetectionSystem:
             # Get ERD values for this channel across all windows
             ch_erds = [window.get(ch_name, 0) for window in self.consecutive_window_buffer]
             
-            # Count how many consecutive windows show ERD
+            # Count how many consecutive windows show ERD (negative values below threshold)
             consecutive_count = 0
             for erd in ch_erds[-min_consecutive:]:
-                if erd > BCIConfig.ERD_THRESHOLD:
+                if erd < BCIConfig.ERD_THRESHOLD:
                     consecutive_count += 1
             
             # Only report ERD if minimum consecutive windows show it
@@ -646,6 +649,9 @@ class BCISystem:
         self.annotation_times = []
         self.last_annotation_check = 0
         self.erd_detection_times = []
+
+        # ERD parameters
+        self.erd_threshold = BCIConfig.ERD_THRESHOLD
         
         # Communication
         self.gui_queue = queue.Queue() if BCIConfig.GUI_ENABLED else None
@@ -691,6 +697,13 @@ class BCISystem:
         if self.keyboard_enabled:
             self._print_keyboard_controls()
     
+    def _update_erd_threshold(self, new_threshold):
+        """Update ERD threshold"""
+        self.erd_threshold = new_threshold
+        self.erd_detector.erd_threshold = new_threshold
+        if BCIConfig.VERBOSE:
+            print(f"ERD threshold updated to: {self.erd_threshold}")
+
     def _init_receiver(self):
         """Initialize appropriate receiver"""
         if BCIConfig.VIRTUAL:
@@ -709,8 +722,8 @@ class BCISystem:
         print("  b - Manual baseline calculation")
         print("  r - Reset baseline")
         print("  s - Print system status")
-        print("  t - Adjust threshold (+5)")
-        print("  g - Adjust threshold (-5)")
+        print("  t - Increase threshold magnitude (-5)")
+        print("  g - Decrease threshold magnitude (+5)")
         print("  a - Toggle moving average")
         print("  d - Toggle sliding baseline")
         print("  + - Increase ERD MA windows")
@@ -795,9 +808,8 @@ class BCISystem:
                             if self.annotations and self.erd_detector.csp_svm_detector:
                                 # Check recent annotations
                                 current_time = self.receiver.current_index / self.fs
-                                for ann in self.annotations[-3:]:  # Check last 5 annotations
+                                for ann in self.annotations[-3:]:  # Check last 3 annotations
                                     ann_time = ann['time']
-                                    print(f"{ann_time}:{current_time}")
                                     # If annotation is 0.5-1.5 seconds before current window
                                     if current_time - 4 < ann_time < current_time:
                                         desc = ann['description']
@@ -810,10 +822,7 @@ class BCISystem:
                                                 if BCIConfig.VERBOSE:
                                                     print(f"AUTO-TRAIN: MI sample from '{desc}'")
                                                 break
-                                    # If annotation is 0.5-1.5 seconds before current window
-                                    if current_time - 4 < ann_time < current_time:
-                                        desc = ann['description']
-                                        erd_window = window_data[self.erd_detector.erd_channel_indices, :]
+                                        
                                         # Check if REST annotation
                                         for rest_ann in BCIConfig.TRAINING_ANNOTATIONS['rest']:
                                             if rest_ann in desc:
@@ -863,7 +872,8 @@ class BCISystem:
                 import traceback
                 traceback.print_exc()
         finally:
-            self.cleanup()
+            pass
+            # self.cleanup()
     
     def _handle_keyboard_input(self, collection_mode):
         """Handle keyboard input for control"""
@@ -887,10 +897,12 @@ class BCISystem:
             elif key == 's':
                 self.print_system_status()
             elif key == 't':
-                BCIConfig.ERD_THRESHOLD = min(100, BCIConfig.ERD_THRESHOLD + 5)
+                # Increase threshold magnitude (more negative)
+                BCIConfig.ERD_THRESHOLD = max(-100, BCIConfig.ERD_THRESHOLD - 5)
                 print(f"Threshold increased to {BCIConfig.ERD_THRESHOLD}%")
             elif key == 'g':
-                BCIConfig.ERD_THRESHOLD = max(10, BCIConfig.ERD_THRESHOLD - 5)
+                # Decrease threshold magnitude (less negative)
+                BCIConfig.ERD_THRESHOLD = min(-10, BCIConfig.ERD_THRESHOLD + 5)
                 print(f"Threshold decreased to {BCIConfig.ERD_THRESHOLD}%")
             elif key == 'a':
                 BCIConfig.USE_MOVING_AVERAGE = not BCIConfig.USE_MOVING_AVERAGE
@@ -945,10 +957,11 @@ class BCISystem:
             return collection_mode
     
     def _check_for_annotations(self):
-        """Check for annotations if using virtual receiver"""
+        """Check for annotations from both virtual and livestream receivers"""
         if not BCIConfig.SHOW_ANNOTATIONS:
             return
-            
+        
+        # Virtual receiver annotations
         if hasattr(self.receiver, 'annotation_onsets') and hasattr(self.receiver, 'current_index'):
             current_time = self.receiver.current_index / self.fs
             
@@ -966,10 +979,12 @@ class BCISystem:
                             })
                             self.annotation_times.append(runtime)
                             
-                            if BCIConfig.VERBOSE:
-                                print(f"\n📍 ANNOTATION: '{desc}' at t={runtime:.3f}s")
+                            print(f"\n📍 ANNOTATION: '{desc}' at t={runtime:.3f}s")
             
             self.last_annotation_check = current_time
+        
+        # Livestream receiver markers - handled in receiver's get_data() method
+        # The markers are printed when detected in the livestream
     
     def _update_display(self, detected, erd_values, confidence):
         """Update console and GUI displays"""
@@ -981,18 +996,19 @@ class BCISystem:
         update_rate = self.update_count / runtime if runtime > 0 else 0
         
         # Console output
-        if not BCIConfig.GUI_ENABLED or BCIConfig.VERBOSE:
+        # if not BCIConfig.GUI_ENABLED or BCIConfig.VERBOSE:
+        if True:
             avg_erd = erd_values.get('avg', 0)
             status = "DETECTED" if detected else "--------"
             
             if BCIConfig.MINIMAL_GUI or not BCIConfig.GUI_ENABLED:
                 # Minimal display - single line update
-                print(f"\r[{runtime:6.1f}s] Avg ERD: {avg_erd:5.1f}% | {status} | "
+                print(f"\r[{runtime:6.1f}s] Avg ERD: {avg_erd:+6.1f}% | {status} | "
                       f"Count: {self.detection_count} | Rate: {detection_rate:4.1f}/min | "
                       f"Updates: {update_rate:3.1f}/s", end='', flush=True)
             else:
                 # Verbose display
-                erd_str = " | ".join([f"{ch}:{erd:.1f}%" for ch, erd in erd_values.items() if ch != 'avg'])
+                erd_str = " | ".join([f"{ch}:{erd:+6.1f}%" for ch, erd in erd_values.items() if ch != 'avg'])
                 if detected:
                     print(f"[{runtime:6.1f}s] {erd_str} | {status}")
         
@@ -1081,7 +1097,7 @@ class BCISystem:
                 print("\nLast ERD values:")
                 for ch, erd in self.erd_detector.last_erd_values.items():
                     if ch not in ['csp_conf', 'combined_conf']:
-                        print(f"  {ch}: {erd:.1f}%")
+                        print(f"  {ch}: {erd:+6.1f}%")
         
         print("="*50 + "\n")
     
@@ -1203,7 +1219,7 @@ def main():
     
     # Detection options
     parser.add_argument('--threshold', type=float, default=BCIConfig.ERD_THRESHOLD,
-                       help="ERD detection threshold")
+                       help="ERD detection threshold (negative for desynchronization)")
     parser.add_argument('--overlap', type=float, default=BCIConfig.WINDOW_OVERLAP,
                        help="Window overlap (0.0-0.9)")
     parser.add_argument('--window', type=float, default=BCIConfig.OPERATING_WINDOW_DURATION,
@@ -1279,7 +1295,7 @@ def main():
     print(f"Window:            {BCIConfig.OPERATING_WINDOW_DURATION}s")
     print(f"Overlap:           {BCIConfig.WINDOW_OVERLAP*100}%")
     print(f"Baseline:          {BCIConfig.BASELINE_METHOD}")
-    print(f"Broadcast:          {BCIConfig.BROADCAST_ENABLED}")
+    print(f"Broadcast:         {BCIConfig.BROADCAST_ENABLED}")
     if BCIConfig.SLIDING_BASELINE:
         print(f"  Sliding:         Yes ({BCIConfig.SLIDING_BASELINE_DURATION}s window)")
     print(f"Moving Average:    {'Enabled' if BCIConfig.USE_MOVING_AVERAGE else 'Disabled'}")
