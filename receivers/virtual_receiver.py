@@ -234,12 +234,15 @@ class Emulator:
         if self.current_index >= total_samples:
             # if self.verbose:
                 # print("End of file reached")
-            return None
+            return None, []
         
         chunk_end = min(self.current_index + self.chunk_size, total_samples)
         
         # Check for annotations in this chunk
         annotations_in_chunk = self._check_annotations_in_chunk(self.current_index, chunk_end)
+        
+        # Convert to same format as livestream receiver
+        new_annotations = []
         
         # Print annotation information if found
         if annotations_in_chunk:
@@ -248,12 +251,22 @@ class Emulator:
                     current_time = self.current_index / self.sampling_frequency
                     # print(f"📍 ANNOTATION DETECTED at t={annotation['onset_time']:.3f}s "
                     #     f"(sample {annotation['sample_index']}): '{annotation['description']}'")
+                    
+                    # Create annotation in same format as livestream
+                    new_annotations.append({
+                        'time': annotation['onset_time'],
+                        'description': annotation['description'],
+                        'type': 'Stimulus',  # Virtual annotations are usually stimulus markers
+                        'sample': annotation['sample_index'],
+                        'position': annotation['sample_index'] - self.current_index,
+                        'channel': -1  # Virtual annotations don't have channel info
+                    })
             
         # Get the data chunk
         data_chunk = self.raw_data._data[:, self.current_index:chunk_end].copy()
         self.current_index = chunk_end
         
-        return data_chunk
+        return data_chunk, new_annotations
     
     def get_data_info(self):
         """Get information about the data for diagnostics"""

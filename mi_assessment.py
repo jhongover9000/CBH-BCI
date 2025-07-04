@@ -1890,15 +1890,15 @@ class EEGMarkerGUI:
         
         if activity == 'imagery':
             # Check if we should show image or text cue
-            if self.use_mi_image.get() and self.mi_image_stimulus:
-                self.show_mi_image()
-                self.log(f"Phase: Motor Imagery with image ({duration} s)")
-            else:
+            # if self.use_mi_image.get() and self.mi_image_stimulus:
+            #     self.show_mi_image()
+            #     self.log(f"Phase: Motor Imagery with image ({duration} s)")
+            # else:
                 # Fallback to text cue
-                self.cue_text.height = 0.5
-                self.update_cue("•", "Motor Imagery")
-                self.log(f"Phase: Motor Imagery with text cue ({duration} s)")
-            
+            self.cue_text.height = 0.5
+            self.update_cue("•", "Motor Imagery")
+            self.log(f"Phase: Motor Imagery with text cue ({duration} s)")
+        
             
 
         else: # activity == 'rest'

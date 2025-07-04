@@ -1,9 +1,9 @@
 '''
-Livestream Receiver Class Definition
+Livestream Receiver Class Definition with Annotation Support
 
-Description: Receiver class for live BCI data streaming.
+Description: Receiver class for live BCI data streaming with marker/annotation support.
 
-Joseph Hong
+Joseph Hong (Modified)
 
 '''
 # =============================================================
@@ -52,18 +52,17 @@ class LivestreamReceiver:
         # For sending classification results to different application via network interface
         self.broadcasting = broadcast
         self.server = None
+        
+        # Annotation/marker tracking
+        self.annotations = []  # Store all annotations
+        self.new_annotations = []  # Store new annotations since last get_data
+        self.total_samples_received = 0  # Track total samples for timestamp calculation
 
         # If broadcasting classification (for further applications), set up UDP server
         if broadcast:
             self.server = TCP_Server.TCPServer()
             self.server.initialize_connection()
             print("Server Initialized")
-            # Start server in a background thread
-            # threading.Thread(target=self.server.initialize_connection, daemon=True).start()
-
-            # Run GUI in main thread
-            # gui = TCP_Server.ServerGUI(self.server)
-            # gui.root.mainloop()
 
     # Read Data from Connection
     def recv_data(self, requested_size):
@@ -126,12 +125,15 @@ class LivestreamReceiver:
 
         return (block, points, marker_count, data, markers)
 
-    # AFTER INITIALIZATION: Get Raw EEG Data
+    # AFTER INITIALIZATION: Get Raw EEG Data with Annotations
     def get_data(self):
         # Read GU.ID and the message type
         rawhdr = self.recv_data(24)
         (id1, id2, id3, id4, msgsize, msgtype) = unpack('<llllLL', rawhdr)
         rawdata = self.recv_data(msgsize - 24)
+
+        # Clear new annotations from previous call
+        self.new_annotations = []
 
         # If EEG data block, unpack and return data
         if msgtype == 4:
@@ -143,14 +145,32 @@ class LivestreamReceiver:
             # Update last block
             self.last_block = block
 
-            # If there are event markers, display them
+            # Process markers/annotations
             if markerCount > 0:
                 for m in range(markerCount):
+                    # Calculate timestamp based on marker position and total samples
+                    timestamp = (self.total_samples_received + markers[m].position) / self.sampling_frequency
+                    
+                    annotation = {
+                        'time': timestamp,
+                        'description': markers[m].description,
+                        'type': markers[m].type,
+                        'sample': self.total_samples_received + markers[m].position,
+                        'position': markers[m].position,
+                        'channel': markers[m].channel
+                    }
+                    
+                    self.annotations.append(annotation)
+                    self.new_annotations.append(annotation)
+                    
                     print("===================================")
-                    print("Marker " + markers[m].description + " of type " + markers[m].type)
+                    print(f"Marker: {markers[m].description} of type {markers[m].type}")
+                    print(f"Time: {timestamp:.3f}s, Sample: {annotation['sample']}")
                     print("===================================")
                     print("")
-                    # self.server.send_message_tcp("MARKER")
+
+            # Update total samples counter
+            self.total_samples_received += points
 
             # Get voltage unit 
             data = np.array(data)
@@ -158,11 +178,14 @@ class LivestreamReceiver:
 
             # Reshape the array to convert it to a two-dimensional array of channels x timepoints
             data = data.reshape((self.channel_count, points), order='F')  # 'F' for column-major order
-            return data
+            
+            # Return data with annotations
+            return data, self.new_annotations
 
         # If ending message, stop the connection
         elif msgtype == 3:
             print("Stopped.")
+            return None, []
   
     # Initialize Connection. sfreq, ch_names, numChannels, dataBuffer = bci.InitializeConnection()
     def initialize_connection(self):
@@ -186,6 +209,17 @@ class LivestreamReceiver:
         print("Initial Data Shape:", np.shape(self.data))
         
         return self.sampling_frequency, self.channel_names, self.channel_count, self.data
+
+    # Get all annotations
+    def get_all_annotations(self):
+        """Get all annotations received so far"""
+        return self.annotations.copy()
+    
+    # Get annotations in time range
+    def get_annotations_in_range(self, start_time, end_time):
+        """Get annotations within a specific time range"""
+        return [ann for ann in self.annotations 
+                if start_time <= ann['time'] <= end_time]
 
     # Use Classification
     def use_classification(self, prediction):

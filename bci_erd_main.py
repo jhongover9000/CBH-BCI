@@ -41,7 +41,7 @@ class BCIConfig:
     
     # Buffer settings
     MAIN_BUFFER_DURATION = 10.0      # seconds
-    BASELINE_BUFFER_DURATION = 5.0  # seconds (≤ main buffer)
+    BASELINE_BUFFER_DURATION = 2.0  # seconds (≤ main buffer)
     OPERATING_WINDOW_DURATION = 1.0  # seconds
     WINDOW_OVERLAP = 0.5            # overlap fraction (0.5 = 50% overlap)
     
@@ -61,7 +61,7 @@ class BCIConfig:
     BASELINE_METHOD = 'robust'  # 'standard' or 'robust'
     ROBUST_METHOD = 'trimmed_mean'  # for robust baseline 'median', 'trimmed_mean', 'mean'
     SLIDING_BASELINE = True     # Use sliding baseline that updates continuously
-    SLIDING_BASELINE_DURATION = 5.0  # seconds of data to use for sliding baseline
+    SLIDING_BASELINE_DURATION = 2.0  # seconds of data to use for sliding baseline
     
     # ERD Calculation Method
     ERD_CALCULATION_METHOD = 'welch'  # Options: 'percentage', 'db_correction', 'welch', 'consecutive'
@@ -81,7 +81,7 @@ class BCIConfig:
     SPATIAL_METHOD = ''  # 'laplacian' or ''
     
     # Connection settings
-    VIRTUAL = True
+    VIRTUAL = False
     LIVESTREAM_IP = "169.254.1.147"
     LIVESTREAM_PORT = 51244
     
@@ -761,10 +761,27 @@ class BCISystem:
                     self._handle_keyboard_input(collection_mode)
                 
                 # Get data from receiver
-                data = self.receiver.get_data()
+                if BCIConfig.VIRTUAL:
+                    data = self.receiver.get_data()
+                    new_annotations = []
+                else:
+                    # Livestream receiver returns data and annotations
+                    result = self.receiver.get_data()
+                    if result is None:
+                        continue
+                    data, new_annotations = result
                 
                 if data is None:
                     continue
+                
+                # Process new annotations from livestream
+                if not BCIConfig.VIRTUAL and new_annotations:
+                    for ann in new_annotations:
+                        self.annotations.append(ann)
+                        self.annotation_times.append(ann['time'])
+                        if BCIConfig.SHOW_ANNOTATIONS:
+                            print(f"\n📍 LIVESTREAM ANNOTATION: '{ann['description']}' "
+                                  f"at t={ann['time']:.3f}s (type: {ann['type']})")
                 
                 self.sample_count += data.shape[1]
                 self.samples_since_update += data.shape[1]
@@ -807,8 +824,12 @@ class BCISystem:
                         elif BCIConfig.AUTO_TRAIN_ANNOTATIONS and BCIConfig.USE_CSP_SVM:
                             if self.annotations and self.erd_detector.csp_svm_detector:
                                 # Check recent annotations
-                                current_time = self.receiver.current_index / self.fs
-                                for ann in self.annotations[-3:]:  # Check last 3 annotations
+                                if BCIConfig.VIRTUAL:
+                                    current_time = self.receiver.current_index / self.fs
+                                else:
+                                    current_time = self.receiver.total_samples_received / self.fs
+                                
+                                for ann in self.annotations[-5:]:  # Check last 5 annotations
                                     ann_time = ann['time']
                                     # If annotation is 0.5-1.5 seconds before current window
                                     if current_time - 4 < ann_time < current_time:
@@ -848,14 +869,18 @@ class BCISystem:
                         
                         if detected:
                             self.detection_count += 1
-                            current_time = self.receiver.current_index / self.fs
+                            if BCIConfig.VIRTUAL:
+                                current_time = self.receiver.current_index / self.fs
+                            else:
+                                current_time = self.receiver.total_samples_received / self.fs
                             self.erd_detection_times.append(current_time)
                             
                             if BCIConfig.BROADCAST_ENABLED:
                                 self.receiver.use_classification(1)
                         
-                        # Check for annotations
-                        self._check_for_annotations()
+                        # Check for annotations (virtual receiver)
+                        if BCIConfig.VIRTUAL:
+                            self._check_for_annotations()
                         
                         # Update display
                         self._update_display(detected, erd_values, confidence)
@@ -875,6 +900,33 @@ class BCISystem:
             pass
             # self.cleanup()
     
+    def _check_for_annotations(self):
+        """Check for annotations from virtual receiver"""
+        if not BCIConfig.SHOW_ANNOTATIONS:
+            return
+        
+        # Virtual receiver annotations only
+        if BCIConfig.VIRTUAL and hasattr(self.receiver, 'annotation_onsets') and hasattr(self.receiver, 'current_index'):
+            current_time = self.receiver.current_index / self.fs
+            
+            if self.receiver.annotation_onsets is not None:
+                for i, onset in enumerate(self.receiver.annotation_onsets):
+                    if self.last_annotation_check <= onset < current_time:
+                        runtime = onset
+                        desc = self.receiver.annotation_descriptions[i]
+                        
+                        if desc != 'Stimulus/S  1':
+                            self.annotations.append({
+                                'time': runtime,
+                                'description': desc,
+                                'sample': int(onset * self.fs)
+                            })
+                            self.annotation_times.append(runtime)
+                            
+                            print(f"\n📍 ANNOTATION: '{desc}' at t={runtime:.3f}s")
+            
+            self.last_annotation_check = current_time
+
     def _handle_keyboard_input(self, collection_mode):
         """Handle keyboard input for control"""
         try:
