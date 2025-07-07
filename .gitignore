@@ -14,3 +14,4 @@ global_scaler.pkl
 matlab_scripts/data/CBH0014.vmrk
 matlab_scripts/data/CBH0014.vhdr
 matlab_scripts/data/CBH0014.eeg
+/matlab_scripts/data

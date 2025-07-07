@@ -43,12 +43,12 @@ class BCIConfig:
     MAIN_BUFFER_DURATION = 10.0      # seconds
     BASELINE_BUFFER_DURATION = 2.0  # seconds (≤ main buffer)
     OPERATING_WINDOW_DURATION = 1.0  # seconds
-    WINDOW_OVERLAP = 0.5            # overlap fraction (0.5 = 50% overlap)
+    WINDOW_OVERLAP = 0.75            # overlap fraction (0.5 = 50% overlap)
     
     # ERD detection settings
     # ERD_CHANNELS = ['C3','FC3', 'CP3', 'C1', 'C5', 'FC5', 'FC1', 'CP5', 'CP1']
     ERD_CHANNELS = ['C3']
-    ERD_BAND = (8, 20)  # mu band in Hz
+    ERD_BAND = (8, 30)  # mu band in Hz
     ERD_THRESHOLD = -30.0  # percent (negative for desynchronization)
     AVERAGE_ERDS = True  # average electrodes (vs individual ERD check)
     
@@ -322,6 +322,7 @@ class ERDDetectionSystem:
             baseline_data = np.array(list(self.baseline_buffer)).T
 
         if baseline_data.shape[0] != self.n_channels:
+            print(f"wrong channel shape: {baseline_data.shape[0]} != {self.n_channels}")
             return False
         
         try:
@@ -373,8 +374,8 @@ class ERDDetectionSystem:
         
         # Apply robust method - default to mean
         if BCIConfig.ROBUST_METHOD == 'trimmed_mean':
-            # Remove top and bottom 10%
-            return self._trimmed_mean(segment_powers.T, trim_percent=0.1)
+            # Remove top and bottom 20%
+            return self._trimmed_mean(segment_powers.T, trim_percent=0.2)
         elif BCIConfig.ROBUST_METHOD == 'median':
             return np.median(segment_powers, axis=0)
         else:
@@ -396,7 +397,7 @@ class ERDDetectionSystem:
         
         return np.array(powers)
     
-    def _trimmed_mean(self, data, trim_percent=0.1):
+    def _trimmed_mean(self, data, trim_percent=0.2):
         """Calculate trimmed mean"""
         sorted_data = np.sort(data, axis=0)
         n_trim = int(data.shape[0] * trim_percent)
@@ -511,7 +512,6 @@ class ERDDetectionSystem:
         erd_values = {}
         for i, ch_idx in enumerate(self.erd_channel_indices):
             if self.baseline_power[i] > 0:
-                # Corrected formula: (activity - baseline) / baseline * 100
                 # ERD will be negative for desynchronization
                 erd_percent = ((current_power[i] - self.baseline_power[i]) / 
                               self.baseline_power[i]) * 100
@@ -763,6 +763,7 @@ class BCISystem:
                 # Get data from receiver
                 if BCIConfig.VIRTUAL:
                     data = self.receiver.get_data()
+                    
                     new_annotations = []
                 else:
                     # Livestream receiver returns data and annotations
@@ -915,7 +916,7 @@ class BCISystem:
                         runtime = onset
                         desc = self.receiver.annotation_descriptions[i]
                         
-                        if desc != 'Stimulus/S  1':
+                        if desc != 'Stimulus/S  1' or desc != 'Response/R  1':
                             self.annotations.append({
                                 'time': runtime,
                                 'description': desc,

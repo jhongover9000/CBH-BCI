@@ -3,19 +3,32 @@
 %%%% Conditions: MI and Rest
 %%%% Time of interest: 0-2000ms with 10 time bins
 
-clear all;
-close all;
+% clear all;
+% close all;
 clc;
 
 %% Parameters
-expTitle = "CBH0014";
+expTitle = "CBH0016";
 nSubject = 1;
 nChannels = 60;
 SR = 250;  % Sampling rate
 
 % Define conditions
-events = {'MI', 'Rest'};
+events = {
+    'MI';
+    % 'Rest';
+    'TapStart'
+};
 nEvents = length(events);
+
+% firstHalf = true;
+% lastHalf = false;
+
+% firstHalf = false;
+% lastHalf = true;
+
+firstHalf = false;
+lastHalf = false;
 
 % Path to epoched data
 eegset_dir = './epoched/';
@@ -56,7 +69,14 @@ for sub = 1:nSubject
     for evt = 1:nEvents
         
         % Load epoched data
-        eeg_file = sprintf('%s_%d_%s.set', expTitle, sub, events{evt});
+        if firstHalf
+            eeg_file = sprintf('%s_%d_%s_%s.set', expTitle, sub, events{evt},'pre');
+        elseif lastHalf
+            eeg_file = sprintf('%s_%d_%s_%s.set', expTitle, sub, events{evt},'post');
+        else
+            eeg_file = sprintf('%s_%d_%s_%s.set', expTitle, sub, events{evt},'all');
+        end
+
         filepath = fullfile(eegset_dir, eeg_file);
         
         if ~exist(filepath, 'file')
@@ -228,7 +248,7 @@ tf_data = squeeze(mean(mean(tf_MI_db(:, :, :, ch_idx), 1), 4));
 contourf(times, frex, tf_data, 40, 'linecolor', 'none');
 set(gca, 'clim', [-2 2], 'ydir', 'normal', 'xlim', [-500 750], 'yscale', 'log');
 ylim([2 50]);
-xlabel('Time (ms)');
+xlabel('Time (timepoints)');
 ylabel('Frequency (Hz)');
 title('MI - Motor Channels');
 xline(0, '-.r', 'LineWidth', 2);
@@ -241,7 +261,7 @@ tf_data = squeeze(mean(mean(tf_Rest_db(:, :, :, ch_idx), 1), 4));
 contourf(times, frex, tf_data, 40, 'linecolor', 'none');
 set(gca, 'clim', [-2 2], 'ydir', 'normal', 'xlim', [-500 750], 'yscale', 'log');
 ylim([2 50]);
-xlabel('Time (ms)');
+xlabel('Time (timepoints)');
 ylabel('Frequency (Hz)');
 title('Rest - Motor Channels');
 xline(0, '-.r', 'LineWidth', 2);
@@ -255,7 +275,7 @@ tf_diff = squeeze(mean(mean(tf_MI_db(:, :, :, ch_idx), 1), 4)) - ...
 contourf(times, frex, tf_diff, 40, 'linecolor', 'none');
 set(gca, 'clim', [-1 1], 'ydir', 'normal', 'xlim', [-500 750], 'yscale', 'log');
 ylim([2 50]);
-xlabel('Time (ms)');
+xlabel('Time (timepoints)');
 ylabel('Frequency (Hz)');
 title('MI - Rest Difference');
 xline(0, '-.r', 'LineWidth', 2);
@@ -297,11 +317,11 @@ for b = 1:length(bands)
     h2 = plot(times, power_Rest, 'r-', 'LineWidth', 2);
     
     % Add shaded error bars
-    fill([times fliplr(times)], [power_MI+sem_MI fliplr(power_MI-sem_MI)], 'b', 'FaceAlpha', 0.2, 'EdgeColor', 'none');
-    fill([times fliplr(times)], [power_Rest+sem_Rest fliplr(power_Rest-sem_Rest)], 'r', 'FaceAlpha', 0.2, 'EdgeColor', 'none');
+    % fill([times fliplr(times)], [power_MI+sem_MI fliplr(power_MI-sem_MI)], 'b', 'FaceAlpha', 0.2, 'EdgeColor', 'none');
+    % fill([times fliplr(times)], [power_Rest+sem_Rest fliplr(power_Rest-sem_Rest)], 'r', 'FaceAlpha', 0.2, 'EdgeColor', 'none');
     
-    xlim([-500 2500]);
-    xlabel('Time (ms)');
+    xlim([-500 750]);
+    xlabel('Time (timepoints)');
     ylabel('Power (dB)');
     title(sprintf('%s Band (%d-%d Hz)', bands{b, 1}, bands{b, 2}(1), bands{b, 2}(2)));
     xline(0, 'k--');

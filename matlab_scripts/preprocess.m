@@ -3,8 +3,8 @@
 %%%% Markers: 'S  3' (MI) and 'S  4' (Rest)
 %%%% Epoch: [-2 3] seconds
 
-clear all;
-close all;
+% clear all;
+% close all;
 clc;
 
 %% Set paths
@@ -18,17 +18,41 @@ end
 
 %% Define parameters
 nSubject = 1;  % Number of subjects
-filename = 'CBH0014';  % or choose a specific file
-firstHalf = true;   % Set to true to epoch first 20 instances
+subjectNum = 17;
+
+if nSubject == 1 && (subjectNum < 10)
+    filename = ['CBH000' int2str(subjectNum)];  % or choose a specific file
+else
+    filename = ['CBH00' int2str(subjectNum)];  % or choose a specific file
+end
+
+
+% Filter for gold coin events
+coinType = "gold";
+
+
+
+if nSubject == 1 && mod(subjectNum,2) == 1
+    markerStartLetter = 'S';
+else
+    markerStartLetter = 'R';
+end
+
+firstHalf = false;   % Set to true to epoch first 20 instances
 lastHalf = false;   % Set to true to epoch last 20 instances
 
-% Define events of interest
-events = {'S  3', 'MI';    % Motor Imagery
-          'S  4', 'Rest'};  % Rest condition
+events = {
+          % [markerStartLetter '  3'], 'MI';    % Motor Imagery
+          % [markerStartLetter '  4'], 'Rest';  % Rest condition
+          [markerStartLetter '  9'], 'TapStart';   % Tapzone start
+          % [markerStartLetter '  10'], 'Tapped'   % Tapped during tap zone
+          % [markerStartLetter '  11'], 'TapEnd'   % Tapzone end
+          };
+
 
 % Epoch parameters
 epoch_period = [-2 3];          % -2 to 3 seconds
-baseline_period = [-500 0];     % -500ms to 0ms baseline
+baseline_period = [-1000 -500];     % -500ms to 0ms baseline
 
 % Load channel locations
 load reference\NewEasyCap63.mat  % Assuming this file exists
@@ -45,7 +69,7 @@ for sub = 1:nSubject
         set_file = [path_to_rawdata '' filename '.vhdr'];
     end
     
-    display(set_file)
+    disp(set_file)
 
     if ~exist(set_file, 'file')
         % fprintf('Warning: File not found for subject %d\n', sub);
@@ -162,17 +186,30 @@ for sub = 1:nSubject
     
     countMI = 0;
     countRest = 0;
+    
     for j = 1:size(EEG.event, 2)
         % issue in initial Unity code sent S3 instead of S7 for gold coins
-        if strcmp(EEG.event(j).type, 'S  3')
+        if strcmp(EEG.event(j).type, [markerStartLetter '  3'])
             countMI = countMI + 1;
             sprintf( 'Prev marker: %s', EEG.event(j + 1).type );
-            if(strcmp(EEG.event(j - 1).type, 'S  2') == 0)
+            if(strcmp(EEG.event(j - 1).type, [markerStartLetter '  2']) == 0)
                 sprintf( 'Prev marker: %s', EEG.event(j + 1).type );
-                EEG.event(j).type = 'S  7';
+                EEG.event(j).type = [markerStartLetter '  7'];
             end
-        elseif strcmp(EEG.event(j).type, 'S  4')
+        elseif strcmp(EEG.event(j).type, [markerStartLetter '  4'])
             countRest = countRest + 1;
+        end
+        % if tapzone enter, check cointype
+        if (coinType ~= "") && (strcmp(EEG.event(j).type, [markerStartLetter '  9']))
+            if(coinType == "gold")
+                coinMarker = [markerStartLetter '  7'];
+            elseif (coinType == "wooden")
+                coinMarker = [markerStartLetter '  8'];
+            end
+
+            if(strcmp(EEG.event(j - 1).type, coinMarker))
+                EEG.event(j).type = 'skip';
+            end
         end
     end
     
@@ -181,9 +218,7 @@ for sub = 1:nSubject
     
     for evt = 1:size(events, 1)
         
-        % Create filename
-        epoch_file = sprintf('%s_%d_%s.set', filename, sub, events{evt, 2});
-        
+       
         % Extract epochs
         fprintf('Processing %s condition...\n', events{evt, 2});
 
@@ -193,6 +228,8 @@ for sub = 1:nSubject
         if firstHalf == true
             selected = events_only(1:min(20, length(events_only)));
             fprintf('  - Selecting first 20 events (total available: %d)\n', length(events_only));
+            % Create filename with first 20
+            epoch_file = sprintf('%s_%d_%s_%s.set', filename, sub, events{evt, 2},'pre');
         elseif lastHalf == true
             if length(events_only) >= 20
                 selected = events_only(end-19:end);
@@ -200,9 +237,13 @@ for sub = 1:nSubject
                 selected = events_only;
             end
             fprintf('  - Selecting last 20 events (total available: %d)\n', length(events_only));
+            % Create filename with last 20
+            epoch_file = sprintf('%s_%d_%s_%s.set', filename, sub, events{evt, 2},'post');
         else
             selected = events_only;
             fprintf('  - Selecting all events (total: %d)\n', length(events_only));
+            % Create filename with all
+            epoch_file = sprintf('%s_%d_%s_%s.set', filename, sub, events{evt, 2},'all');
         end
         
         % Temporarily modify event types for selected events to create unique identifiers
