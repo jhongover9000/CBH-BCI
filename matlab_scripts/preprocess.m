@@ -8,7 +8,7 @@
 clc;
 
 %% Set paths
-path_to_rawdata = './data/';
+path_to_rawdata = './data/CBH/';
 path_to_epoched = './epoched/';
 
 % Create output directory if it doesn't exist
@@ -17,20 +17,15 @@ if ~exist(path_to_epoched, 'dir')
 end
 
 %% Define parameters
-nSubject = 1;  % Number of subjects
-subjectNum = 17;
+nSubject = 19;  % Number of subjects
+subjectNum = 0;
+filename = "";
+coinType = "gold";  % Filter for specific coin events
 
+% For 1 subject
 if nSubject == 1 && (subjectNum < 10)
     filename = ['CBH000' int2str(subjectNum)];  % or choose a specific file
-else
-    filename = ['CBH00' int2str(subjectNum)];  % or choose a specific file
 end
-
-
-% Filter for gold coin events
-coinType = "gold";
-
-
 
 if nSubject == 1 && mod(subjectNum,2) == 1
     markerStartLetter = 'S';
@@ -38,15 +33,15 @@ else
     markerStartLetter = 'R';
 end
 
-firstHalf = false;   % Set to true to epoch first 20 instances
+firstHalf = true;   % Set to true to epoch first 20 instances
 lastHalf = false;   % Set to true to epoch last 20 instances
 
 events = {
-          % [markerStartLetter '  3'], 'MI';    % Motor Imagery
-          % [markerStartLetter '  4'], 'Rest';  % Rest condition
-          [markerStartLetter '  9'], 'TapStart';   % Tapzone start
-          % [markerStartLetter '  10'], 'Tapped'   % Tapped during tap zone
-          % [markerStartLetter '  11'], 'TapEnd'   % Tapzone end
+          [markerStartLetter '  3'], 'MI';    % Motor Imagery
+          [markerStartLetter '  4'], 'Rest';  % Rest condition
+          % [markerStartLetter '  9'], 'TapStart';   % Tapzone start
+          [markerStartLetter ' 10'], 'Tapped'   % Tapped during tap zone
+          % [markerStartLetter ' 11'], 'TapEnd'   % Tapzone end
           };
 
 
@@ -55,7 +50,7 @@ epoch_period = [-2 3];          % -2 to 3 seconds
 baseline_period = [-1000 -500];     % -500ms to 0ms baseline
 
 % Load channel locations
-load reference\NewEasyCap63.mat  % Assuming this file exists
+load ./reference/NewEasyCap63.mat  % Assuming this file exists
 
 %% Main preprocessing loop
 for sub = 1:nSubject
@@ -63,12 +58,31 @@ for sub = 1:nSubject
     fprintf('Processing Subject %d/%d\n', sub, nSubject);
     
     % Load raw data
-    if (filename == "")
-        set_file = [path_to_rawdata 'MIT' int2str(sub) '.vhdr'];
+    if (sub < 10)
+        filename = ['CBH000' int2str(sub)];  % or choose a specific file
     else
-        set_file = [path_to_rawdata '' filename '.vhdr'];
+        filename = ['CBH00' int2str(sub)];  % or choose a specific file
+    end
+    set_file = [path_to_rawdata '' filename '.vhdr'];
+    
+    % Set condition markers
+    if mod(sub,2) == 1
+        markerStartLetter = 'S';
+    else
+        markerStartLetter = 'R';
     end
     
+    firstHalf = false;   % Set to true to epoch first 20 instances
+    lastHalf = false;   % Set to true to epoch last 20 instances
+    
+    events = {
+              [markerStartLetter '  3'], 'MI';    % Motor Imagery
+              [markerStartLetter '  4'], 'Rest';  % Rest condition
+              [markerStartLetter '  9'], 'TapStart';   % Tapzone start
+              [markerStartLetter ' 10'], 'Tapped'   % Tapped during tap zone
+              % [markerStartLetter ' 11'], 'TapEnd'   % Tapzone end
+              };
+
     disp(set_file)
 
     if ~exist(set_file, 'file')
@@ -217,68 +231,80 @@ for sub = 1:nSubject
     fprintf('Epoching data...\n');
     
     for evt = 1:size(events, 1)
-        
-       
         % Extract epochs
         fprintf('Processing %s condition...\n', events{evt, 2});
+        % Twice for first and second half
+        for s = 1:2
+            % select pre/post
+            if s == 1
+                firstHalf = true;
+                lastHalf = false;
+                fprintf('Processing %s pre...\n', events{evt, 2});
+            elseif s == 2
+                firstHalf = false;
+                lastHalf = true;
+                fprintf('Processing %s post...\n', events{evt, 2});
+            end
 
-        events_only = find(strcmp({EEG.event.type}, events(evt,1)));
-        
-        % Select events based on firstHalf/lastHalf flags
-        if firstHalf == true
-            selected = events_only(1:min(20, length(events_only)));
-            fprintf('  - Selecting first 20 events (total available: %d)\n', length(events_only));
-            % Create filename with first 20
-            epoch_file = sprintf('%s_%d_%s_%s.set', filename, sub, events{evt, 2},'pre');
-        elseif lastHalf == true
-            if length(events_only) >= 20
-                selected = events_only(end-19:end);
+            events_only = find(strcmp({EEG.event.type}, events(evt,1)));
+            
+            % Select events based on firstHalf/lastHalf flags
+            if firstHalf == true
+                selected = events_only(1:min(20, length(events_only)));
+                fprintf('  - Selecting first 20 events (total available: %d)\n', length(events_only));
+                % Create filename with first 20
+                epoch_file = sprintf('%s_%d_%s_%s.set', filename, sub, events{evt, 2},'pre');
+            elseif lastHalf == true
+                if length(events_only) >= 20
+                    selected = events_only(end-19:end);
+                else
+                    selected = events_only;
+                end
+                fprintf('  - Selecting last 20 events (total available: %d)\n', length(events_only));
+                % Create filename with last 20
+                epoch_file = sprintf('%s_%d_%s_%s.set', filename, sub, events{evt, 2},'post');
             else
                 selected = events_only;
+                fprintf('  - Selecting all events (total: %d)\n', length(events_only));
+                % Create filename with all
+                epoch_file = sprintf('%s_%s_%s.set', filename, events{evt, 2},'all');
             end
-            fprintf('  - Selecting last 20 events (total available: %d)\n', length(events_only));
-            % Create filename with last 20
-            epoch_file = sprintf('%s_%d_%s_%s.set', filename, sub, events{evt, 2},'post');
-        else
-            selected = events_only;
-            fprintf('  - Selecting all events (total: %d)\n', length(events_only));
-            % Create filename with all
-            epoch_file = sprintf('%s_%d_%s_%s.set', filename, sub, events{evt, 2},'all');
-        end
-        
-        % Temporarily modify event types for selected events to create unique identifiers
-        temp_event_type = sprintf('TEMP_%s', events{evt, 2});
-        original_types = cell(length(selected), 1);
-        
-        % Store original types and set temporary types for selected events
-        for i = 1:length(selected)
-            original_types{i} = EEG.event(selected(i)).type;
-            EEG.event(selected(i)).type = temp_event_type;
-        end
-        
-        % Epoch around the temporarily renamed events
-        epoch = pop_epoch(EEG, {temp_event_type}, epoch_period, 'epochinfo', 'yes');
-        
-        % Restore original event types in the main EEG structure
-        for i = 1:length(selected)
-            EEG.event(selected(i)).type = original_types{i};
-        end
-        
-        % Apply baseline correction
-        epoch = pop_rmbase(epoch, baseline_period);
-        epoch = eeg_checkset(epoch);
-        
-        % Display epoch info
-        fprintf('  - Number of epochs: %d\n', epoch.trials);
-        fprintf('  - Epoch length: %.1f seconds\n', epoch.xmax - epoch.xmin);
-        
-        % Save epoched data
-        epoch = pop_saveset(epoch, ...
-            'filename', epoch_file, ...
-            'filepath', path_to_epoched, ...
-            'savemode', 'onefile');
-        
-        fprintf('  - Saved: %s\n', fullfile(path_to_epoched, epoch_file));
+            
+            % Temporarily modify event types for selected events to create unique identifiers
+            temp_event_type = sprintf('TEMP_%s', events{evt, 2});
+            original_types = cell(length(selected), 1);
+            
+            % Store original types and set temporary types for selected events
+            for i = 1:length(selected)
+                original_types{i} = EEG.event(selected(i)).type;
+                EEG.event(selected(i)).type = temp_event_type;
+            end
+            
+            % Epoch around the temporarily renamed events
+            epoch = pop_epoch(EEG, {temp_event_type}, epoch_period, 'epochinfo', 'yes');
+            
+            % Restore original event types in the main EEG structure
+            for i = 1:length(selected)
+                EEG.event(selected(i)).type = original_types{i};
+            end
+            
+            % Apply baseline correction
+            epoch = pop_rmbase(epoch, baseline_period);
+            epoch = eeg_checkset(epoch);
+            
+            % Display epoch info
+            fprintf('  - Number of epochs: %d\n', epoch.trials);
+            fprintf('  - Epoch length: %.1f seconds\n', epoch.xmax - epoch.xmin);
+            
+            % Save epoched data
+            epoch = pop_saveset(epoch, ...
+                'filename', epoch_file, ...
+                'filepath', path_to_epoched, ...
+                'savemode', 'onefile');
+            
+            fprintf('  - Saved: %s\n', fullfile(path_to_epoched, epoch_file));
+       end
+
     end
     
     fprintf('Subject %d completed!\n\n', sub);

@@ -15,3 +15,8 @@ matlab_scripts/data/CBH0014.vmrk
 matlab_scripts/data/CBH0014.vhdr
 matlab_scripts/data/CBH0014.eeg
 /matlab_scripts/data
+/matlab_scripts/epoched
+/matlab_scripts/tf*.mat
+matlab_scripts/tf_*
+matlab_scripts/tf_MI_db.mat
+matlab_scripts/tf_Rest_db.mat
