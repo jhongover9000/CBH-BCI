@@ -9,7 +9,7 @@ clc;
 
 %% Parameters
 expTitle = "";
-nSubject = 19;  % Total number of subjects (CBH0001 to CBH0019)
+nSubject = 25;  % Total number of subjects (CBH0001 to CBH0019)
 nChannels = 60;
 SR = 250;  % Sampling rate
 
@@ -36,14 +36,14 @@ else
     fprintf('Analyzing NON-HAPTIC condition: %d subjects (even numbered)\n', conditional_subject_count);
 end
 
-% firstHalf = true;
-% lastHalf = false;
+firstHalf = true;
+lastHalf = false;
 
 % firstHalf = false;
 % lastHalf = true;
 
-firstHalf = false;
-lastHalf = false;
+% firstHalf = false;
+% lastHalf = false;
 
 half_condition = "";
 haptic_condition = "";
@@ -65,12 +65,12 @@ wavtime = -2:1/SR:2;
 half_wave = (length(wavtime)-1)/2;
 
 % Time parameters
-epoch_period = [-2 3];  % -2 to 3 seconds
+epoch_period = [-3 4];  % -2 to 3 seconds
 nTimes = diff(epoch_period) * SR;
 times = epoch_period(1)*SR:epoch_period(2)*SR-1; % -2000 to 2999 ms
 
 % Baseline for dB conversion
-baseline_window = [-1.0*SR -0.5*SR];  % -1000ms to -500ms
+baseline_window = [-2.0*SR -1.0*SR];  % -1000ms to -500ms
 baseidx = reshape(dsearchn(times', baseline_window(:)), [], 2);
 
 %% Initialize output matrices
@@ -112,6 +112,8 @@ for sub = 1:nSubject
     else
         filename = ['CBH00' int2str(sub)];
     end
+
+    disp(filename)
     
     % Process each condition
     for evt = 1:nEvents
@@ -265,7 +267,7 @@ for i = 1:n_bins
     t_idx = find(times >= t_start & times < t_end);
     
     % Average over subjects, frequencies, and time window
-    topo_data = squeeze(mean(mean(mean(tf_MI_db(1, freq_idx, t_idx, :), 1), 2), 3))';
+    topo_data = squeeze(mean(mean(mean(tf_MI_db(:, freq_idx, t_idx, :), 1), 2), 3))';
     
     % Plot topography
     topoplot(topo_data, EEG_chlocs, ...
@@ -287,7 +289,7 @@ for i = 1:n_bins
     t_idx = find(times >= t_start & times < t_end);
     
     % Average over subjects, frequencies, and time window
-    topo_data = squeeze(mean(mean(mean(tf_Rest_db(1, freq_idx, t_idx, :), 1), 2), 3))';
+    topo_data = squeeze(mean(mean(mean(tf_Rest_db(:, freq_idx, t_idx, :), 1), 2), 3))';
     
     % Plot topography
     topoplot(topo_data, EEG_chlocs, ...
