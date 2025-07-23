@@ -17,7 +17,7 @@ if ~exist(path_to_epoched, 'dir')
 end
 
 %% Define parameters
-nSubject = 27;  % Number of subjects
+nSubject = 25;  % Number of subjects
 subjectNum = 0;
 filename = "";
 coinType = "gold";  % Filter for specific coin events
@@ -37,7 +37,7 @@ end
 events = {
           [markerStartLetter '  3'], 'MI';    % Motor Imagery
           [markerStartLetter '  4'], 'Rest';  % Rest condition
-          % [markerStartLetter '  9'], 'TapStart';   % Tapzone start
+          [markerStartLetter '  9'], 'TapStart';   % Tapzone start
           % [markerStartLetter ' 10'], 'Tapped'   % Tapped during tap zone
           % [markerStartLetter ' 11'], 'TapEnd'   % Tapzone end
           };
@@ -52,12 +52,12 @@ load ./reference/NewEasyCap63.mat  % Assuming this file exists
 
 %% Initialize summary storage
 % Create a cell array to store the counts of skipped trials for each subject.
-% skipped_counts_summary = cell(nSubject + 1, 5);
-% skipped_counts_summary(1,:) = {'SubjectID', 'Skipped_MI_Pre', 'Skipped_MI_Post', 'Skipped_Rest_Pre', 'Skipped_Rest_Post'};
+skipped_counts_summary = cell(nSubject + 1, 5);
+skipped_counts_summary(1,:) = {'SubjectID', 'Skipped_MI_Pre', 'Skipped_MI_Post', 'Skipped_Rest_Pre', 'Skipped_Rest_Post'};
 
 
 %% Main preprocessing loop
-for sub = 26:nSubject
+for sub = 1:nSubject
     
     % Initialize counters for the current subject
     skipped_mi_count_pre = 0;
@@ -85,9 +85,9 @@ for sub = 26:nSubject
     events = {
               [markerStartLetter '  3'], 'MI';    % Motor Imagery
               [markerStartLetter '  4'], 'Rest';  % Rest condition
-              % [markerStartLetter '  9'], 'TapStart';   % Tapzone start
+              [markerStartLetter '  9'], 'TapStart';   % Tapzone start
               % [markerStartLetter ' 10'], 'Tapped'   % Tapped during tap zone
-              % [markerStartLetter ' 11'], 'TapEnd'   % Tapzone end
+              [markerStartLetter ' 11'], 'TapEnd'   % Tapzone end
               };
 
     disp(set_file)
@@ -244,7 +244,7 @@ for sub = 26:nSubject
         end
 
         % If EVAL NO, then toggle skip for Rest/MI marker before
-        if (strcmp(EEG.event(j).type, [markerStartLetter ' 15']))
+        if (strcmp(EEG.event(j).type, [markerStartLetter '  15']))
             if(toggle_skip)
                 % Check if the event 2 positions before is MI or Rest
                 if (j > 2) % Ensure we don't go out of bounds
@@ -304,7 +304,7 @@ for sub = 26:nSubject
                 epoch_label = 'pre';
                 fprintf('Processing %s %s...\n', events{evt, 2}, epoch_label);
                 if ~isempty(boundary_event_index)
-                    % if(strcmp(EEG.event(j - 2).type, [markerStartLetter '  3']) )
+                    if()
                     selected = events_only_indices(events_only_indices < boundary_event_index);
                 end
 

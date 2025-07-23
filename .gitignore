@@ -20,3 +20,4 @@ matlab_scripts/data/CBH0014.eeg
 matlab_scripts/tf_*
 matlab_scripts/tf_MI_db.mat
 matlab_scripts/tf_Rest_db.mat
+/matlab_scripts/power
