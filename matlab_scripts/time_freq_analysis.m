@@ -1,6 +1,6 @@
 %% Time-Frequency Analysis using Morlet Wavelet with Topography
 %
-% MODIFIED SCRIPT V2
+% MODIFIED SCRIPT V3
 %
 % This script is designed to:
 % 1. Automatically loop through different experimental groups (Haptic, Non-Haptic)
@@ -10,6 +10,8 @@
 % 4. Generate plots that directly compare groups and time points for each
 %    event type, including both time-frequency spectrograms and scalp
 %    topographies.
+% 5. Generate a third set of plots comparing the Pre-to-Post change between groups.
+% 6. Save all generated plots to a specified directory.
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -195,16 +197,26 @@ fprintf('\nCreating comparative plots...\n');
 tf_clim = [-2 2];
 topo_clim = [-2 2];
 diff_clim = [-1 1];
-channels_of_interest = {'C3', 'C4', 'Cz'}; % For TF plots
+channels_of_interest = {'C3'}; % For TF plots
 
 % --- Topography Parameters ---
 % Define frequency bands of interest for topographies
 freq_bands = {
     'Alpha', [8 13];
-    'Beta', [13 30]
+    'Beta', [13 30];
+    'Alpha-Beta', [8 30]
 };
 % Define time window for topographies
 topo_time_window = [0.5 1.5]; % in seconds
+
+% --- Plot Saving Parameters ---
+save_plots = true; % SET TO true TO SAVE PLOTS, false TO ONLY DISPLAY
+plot_output_dir = 'analysis_plots'; % Folder to save plots
+if save_plots && ~exist(plot_output_dir, 'dir')
+    mkdir(plot_output_dir);
+    fprintf('Created directory for saving plots: ./%s\n', plot_output_dir);
+end
+
 
 % Find indices for channels, frequencies, and times
 ch_idx = find(ismember({EEG_chlocs.labels}, channels_of_interest));
@@ -227,7 +239,7 @@ for evt = 1:nEvents
         % --- FIGURE 1: Haptic vs Non-Haptic Comparison ---
         for t = 1:length(timepoints)
             timepoint_name = timepoints{t};
-            figure('Position', [100 100 1500 900], 'color', 'w');
+            figure('Position', [100 100 1500 900], 'color', 'w', 'Visible', 'off'); % Create figure but keep it hidden
             sgtitle(sprintf('Group Comparison (%s at %s): Haptic vs. Non-Haptic [%s Band]', event_name, timepoint_name, band_name), 'FontSize', 16, 'FontWeight', 'bold');
 
             % Get data for both groups at the current timepoint
@@ -278,12 +290,20 @@ for evt = 1:nEvents
             topo_diff = topo_haptic - topo_nonhaptic;
             topoplot(topo_diff, EEG_chlocs, 'maplimits', diff_clim, 'style', 'map', 'electrodes', 'ptslabels');
             title(sprintf('Difference Topo (%s)', band_name)); colorbar;
+
+            % --- SAVE THE FIGURE ---
+            if save_plots
+                fig_filename = sprintf('%s_GroupComparison_%s_%s_Band.png', event_name, timepoint_name, band_name);
+                print(gcf, fullfile(plot_output_dir, fig_filename), '-dpng', '-r300');
+                fprintf('  Saved plot: %s\n', fig_filename);
+            end
+            set(gcf, 'Visible', 'on'); % Make figure visible after saving
         end
 
         % --- FIGURE 2: Pre vs. Post Training Comparison ---
         for g = 1:length(groups)
             group_name = groups{g};
-            figure('Position', [150 150 1500 900], 'color', 'w');
+            figure('Position', [150 150 1500 900], 'color', 'w', 'Visible', 'off'); % Create figure but keep it hidden
             sgtitle(sprintf('Training Comparison (%s for %s Group): Pre vs. Post [%s Band]', event_name, group_name, band_name), 'FontSize', 16, 'FontWeight', 'bold');
 
             % Get data for both timepoints for the current group
@@ -320,21 +340,91 @@ for evt = 1:nEvents
             % --- Pre-Training Topography (Bottom Left) ---
             subplot(2,3,4);
             topo_pre = squeeze(mean(mean(mean(data_pre(:, freq_idx(1):freq_idx(2), topo_time_idx(1):topo_time_idx(2), :), 1), 2), 3));
-            topoplot(topo_pre, EEG_chlocs, 'maplimits', topo_clim, 'style', 'map', 'electrodes', 'ptslabels');
+            topoplot(topo_pre, EEG_chlocs, 'maplimits', topo_clim, 'style', 'map', 'electrodes', 'on');
             title(sprintf('Pre-Training Topo (%s)', band_name)); colorbar;
 
             % --- Post-Training Topography (Bottom Middle) ---
             subplot(2,3,5);
             topo_post = squeeze(mean(mean(mean(data_post(:, freq_idx(1):freq_idx(2), topo_time_idx(1):topo_time_idx(2), :), 1), 2), 3));
-            topoplot(topo_post, EEG_chlocs, 'maplimits', topo_clim, 'style', 'map', 'electrodes', 'ptslabels');
+            topoplot(topo_post, EEG_chlocs, 'maplimits', topo_clim, 'style', 'map', 'electrodes', 'on');
             title(sprintf('Post-Training Topo (%s)', band_name)); colorbar;
 
             % --- Difference Topography (Bottom Right) ---
             subplot(2,3,6);
             topo_diff = topo_post - topo_pre;
-            topoplot(topo_diff, EEG_chlocs, 'maplimits', diff_clim, 'style', 'map', 'electrodes', 'ptslabels');
+            topoplot(topo_diff, EEG_chlocs, 'maplimits', diff_clim, 'style', 'map', 'electrodes', 'on');
             title(sprintf('Difference Topo (%s)', band_name)); colorbar;
+            
+            % --- SAVE THE FIGURE ---
+            if save_plots
+                fig_filename = sprintf('%s_TrainingComparison_%s_%s_Band.png', event_name, group_name, band_name);
+                print(gcf, fullfile(plot_output_dir, fig_filename), '-dpng', '-r300');
+                fprintf('  Saved plot: %s\n', fig_filename);
+            end
+            set(gcf, 'Visible', 'on'); % Make figure visible after saving
         end
+        
+        % --- NEW FIGURE 3: Comparison of Pre-to-Post Change (Delta) Between Groups ---
+        figure('Position', [200 200 1500 900], 'color', 'w', 'Visible', 'off');
+        sgtitle(sprintf('Comparison of Training Effect (%s): Delta (Post-Pre) for Haptic vs. Non-Haptic [%s Band]', event_name, band_name), 'FontSize', 16, 'FontWeight', 'bold');
+
+        % Calculate the change (Post - Pre) for each group
+        delta_haptic = all_tf_data.Haptic.Post.(event_name) - all_tf_data.Haptic.Pre.(event_name);
+        delta_nonhaptic = all_tf_data.NonHaptic.Post.(event_name) - all_tf_data.NonHaptic.Pre.(event_name);
+
+        % --- Delta Haptic TF Plot (Top Left) ---
+        subplot(2,3,1);
+        tf_delta_haptic_mean = squeeze(mean(mean(delta_haptic(:, :, :, ch_idx), 1), 4));
+        contourf(times, frex, tf_delta_haptic_mean, 40, 'linecolor', 'none');
+        set(gca, 'clim', diff_clim, 'ydir', 'normal', 'xlim', [-0.5 2], 'yscale', 'log');
+        ylim([2 50]); yticks([4 8 13 30 50]);
+        title('Haptic Change (Post-Pre)'); xlabel('Time (s)'); ylabel('Frequency (Hz)');
+        xline(0, '-.r', 'LineWidth', 2); colorbar;
+
+        % --- Delta Non-Haptic TF Plot (Top Middle) ---
+        subplot(2,3,2);
+        tf_delta_nonhaptic_mean = squeeze(mean(mean(delta_nonhaptic(:, :, :, ch_idx), 1), 4));
+        contourf(times, frex, tf_delta_nonhaptic_mean, 40, 'linecolor', 'none');
+        set(gca, 'clim', diff_clim, 'ydir', 'normal', 'xlim', [-0.5 2], 'yscale', 'log');
+        ylim([2 50]); yticks([4 8 13 30 50]);
+        title('Non-Haptic Change (Post-Pre)'); xlabel('Time (s)');
+        xline(0, '-.r', 'LineWidth', 2); colorbar;
+
+        % --- Difference of Deltas TF Plot (Top Right) ---
+        subplot(2,3,3);
+        tf_diff_of_deltas = tf_delta_haptic_mean - tf_delta_nonhaptic_mean;
+        contourf(times, frex, tf_diff_of_deltas, 40, 'linecolor', 'none');
+        set(gca, 'clim', diff_clim, 'ydir', 'normal', 'xlim', [-0.5 2], 'yscale', 'log');
+        ylim([2 50]); yticks([4 8 13 30 50]);
+        title('Difference of Changes'); xlabel('Time (s)');
+        xline(0, '-.r', 'LineWidth', 2); colorbar;
+
+        % --- Delta Haptic Topography (Bottom Left) ---
+        subplot(2,3,4);
+        topo_delta_haptic = squeeze(mean(mean(mean(delta_haptic(:, freq_idx(1):freq_idx(2), topo_time_idx(1):topo_time_idx(2), :), 1), 2), 3));
+        topoplot(topo_delta_haptic, EEG_chlocs, 'maplimits', diff_clim, 'style', 'map', 'electrodes', 'on');
+        title(sprintf('Haptic Change Topo (%s)', band_name)); colorbar;
+
+        % --- Delta Non-Haptic Topography (Bottom Middle) ---
+        subplot(2,3,5);
+        topo_delta_nonhaptic = squeeze(mean(mean(mean(delta_nonhaptic(:, freq_idx(1):freq_idx(2), topo_time_idx(1):topo_time_idx(2), :), 1), 2), 3));
+        topoplot(topo_delta_nonhaptic, EEG_chlocs, 'maplimits', diff_clim, 'style', 'map', 'electrodes', 'on');
+        title(sprintf('Non-Haptic Change Topo (%s)', band_name)); colorbar;
+
+        % --- Difference of Deltas Topography (Bottom Right) ---
+        subplot(2,3,6);
+        topo_diff_of_deltas = topo_delta_haptic - topo_delta_nonhaptic;
+        topoplot(topo_diff_of_deltas, EEG_chlocs, 'maplimits', diff_clim, 'style', 'map', 'electrodes', 'on');
+        title(sprintf('Difference of Changes Topo (%s)', band_name)); colorbar;
+
+        % --- SAVE THE FIGURE ---
+        if save_plots
+            fig_filename = sprintf('%s_DeltaComparison_Haptic-vs-NonHaptic_%s_Band.png', event_name, band_name);
+            print(gcf, fullfile(plot_output_dir, fig_filename), '-dpng', '-r300');
+            fprintf('  Saved plot: %s\n', fig_filename);
+        end
+        set(gcf, 'Visible', 'on'); % Make figure visible after saving
+
     end
 end
 
