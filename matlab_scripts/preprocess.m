@@ -1,6 +1,5 @@
 %%%% EEG Preprocessing Pipeline
-%%%% Adapted for MI and Rest conditions
-%%%% Markers: 'S  3' (MI) and 'S  4' (Rest)
+%%%% Adapted for MI, Rest, and Tapping conditions
 %%%% Epoch: [-3 4] seconds
 
 % clear all;
@@ -17,7 +16,7 @@ if ~exist(path_to_epoched, 'dir')
 end
 
 %% Define parameters
-nSubject = 27;  % Number of subjects
+nSubject = 29;  % Number of subjects
 subjectNum = 0;
 filename = "";
 coinType = "gold";  % Filter for specific coin events
@@ -34,12 +33,12 @@ else
     markerStartLetter = 'R';
 end
 
+% Define all events to be epoched
 events = {
-          [markerStartLetter '  3'], 'MI';    % Motor Imagery
-          [markerStartLetter '  4'], 'Rest';  % Rest condition
-          % [markerStartLetter '  9'], 'TapStart';   % Tapzone start
-          % [markerStartLetter ' 10'], 'Tapped'   % Tapped during tap zone
-          % [markerStartLetter ' 11'], 'TapEnd'   % Tapzone end
+          [markerStartLetter '  3'], 'MI';       % Motor Imagery
+          [markerStartLetter '  4'], 'Rest';     % Rest condition
+          [markerStartLetter '  9'], 'TapStart'; % Tapzone start
+          [markerStartLetter ' 11'], 'TapEnd'    % Tapzone end
           };
 
 
@@ -52,12 +51,12 @@ load ./reference/NewEasyCap63.mat  % Assuming this file exists
 
 %% Initialize summary storage
 % Create a cell array to store the counts of skipped trials for each subject.
-% skipped_counts_summary = cell(nSubject + 1, 5);
-% skipped_counts_summary(1,:) = {'SubjectID', 'Skipped_MI_Pre', 'Skipped_MI_Post', 'Skipped_Rest_Pre', 'Skipped_Rest_Post'};
+skipped_counts_summary = cell(nSubject + 1, 5);
+skipped_counts_summary(1,:) = {'SubjectID', 'Skipped_MI_Pre', 'Skipped_MI_Post', 'Skipped_Rest_Pre', 'Skipped_Rest_Post'};
 
 
 %% Main preprocessing loop
-for sub = 26:nSubject
+for sub = 1:nSubject
     
     % Initialize counters for the current subject
     skipped_mi_count_pre = 0;
@@ -69,25 +68,25 @@ for sub = 26:nSubject
     
     % Load raw data
     if (sub < 10)
-        filename = ['CBH000' int2str(sub)];  % or choose a specific file
+        filename = ['CBH000' int2str(sub)];
     else
-        filename = ['CBH00' int2str(sub)];  % or choose a specific file
+        filename = ['CBH00' int2str(sub)];
     end
     set_file = [path_to_rawdata '' filename '.vhdr'];
     
-    % Set condition markers
+    % Set condition markers based on subject number
     if mod(sub,2) == 1
         markerStartLetter = 'S';
     else
         markerStartLetter = 'R';
     end
     
+    % Redefine events with the correct marker letter for the subject
     events = {
-              [markerStartLetter '  3'], 'MI';    % Motor Imagery
-              [markerStartLetter '  4'], 'Rest';  % Rest condition
-              % [markerStartLetter '  9'], 'TapStart';   % Tapzone start
-              % [markerStartLetter ' 10'], 'Tapped'   % Tapped during tap zone
-              % [markerStartLetter ' 11'], 'TapEnd'   % Tapzone end
+              [markerStartLetter '  3'], 'MI';
+              [markerStartLetter '  4'], 'Rest';
+              [markerStartLetter '  9'], 'TapStart';
+              [markerStartLetter ' 11'], 'TapEnd'
               };
 
     disp(set_file)
@@ -196,13 +195,13 @@ for sub = 26:nSubject
     EEG = eeg_checkset(EEG);
     
     %% Find boundary marker before cleaning events
-    % This is needed to correctly assign skipped trials to pre/post bins.
-    tap_start_marker = [markerStartLetter '  9'];
+    % This is needed to correctly assign skipped trials to pre/post bins for MI/Rest.
+    tap_start_boundary_marker = [markerStartLetter '  9'];
     all_event_types_for_boundary = {EEG.event.type};
-    boundary_event_index = find(strcmp(all_event_types_for_boundary, tap_start_marker), 1, 'first');
+    boundary_event_index = find(strcmp(all_event_types_for_boundary, tap_start_boundary_marker), 1, 'first');
 
     if isempty(boundary_event_index)
-        fprintf('Warning: No TapStart marker ("%s") found for subject %s. Cannot separate pre/post NO counts.\n', tap_start_marker, filename);
+        fprintf('Warning: No TapStart marker ("%s") found for subject %s. Cannot separate pre/post NO counts or MI/Rest epochs.\n', tap_start_boundary_marker, filename);
     end
 
     %% Clean events and count "NO" evaluations
@@ -215,22 +214,14 @@ for sub = 26:nSubject
         end
     end
     
-    countMI = 0;
-    countRest = 0;
-    
     for j = 1:size(EEG.event, 2)
-        % issue in initial Unity code sent S3 instead of S7 for gold coins
+        % Issue in initial Unity code sent S3 instead of S7 for gold coins
         if strcmp(EEG.event(j).type, [markerStartLetter '  3'])
-            countMI = countMI + 1;
-            sprintf( 'Prev marker: %s', EEG.event(j + 1).type );
-            if(strcmp(EEG.event(j - 1).type, [markerStartLetter '  2']) == 0)
-                sprintf( 'Prev marker: %s', EEG.event(j + 1).type );
-                EEG.event(j).type = [markerStartLetter '  7'];
+            if(j > 1 && strcmp(EEG.event(j - 1).type, [markerStartLetter '  2']) == 0)
+                EEG.event(j).type = [markerStartLetter '  7']; % Re-label as Gold MI
             end
-        elseif strcmp(EEG.event(j).type, [markerStartLetter '  4'])
-            countRest = countRest + 1;
         end
-        % if tapzone enter, check cointype
+        % If tapzone enter, check cointype to skip
         if (coinType ~= "") && (strcmp(EEG.event(j).type, [markerStartLetter '  9']))
             if(coinType == "gold")
                 coinMarker = [markerStartLetter '  7'];
@@ -238,32 +229,31 @@ for sub = 26:nSubject
                 coinMarker = [markerStartLetter '  8'];
             end
 
-            if(strcmp(EEG.event(j - 1).type, coinMarker))
+            if(j > 1 && strcmp(EEG.event(j - 1).type, coinMarker))
                 EEG.event(j).type = 'skip';
             end
         end
 
         % If EVAL NO, then toggle skip for Rest/MI marker before
-        if (strcmp(EEG.event(j).type, [markerStartLetter ' 15']))
+        if (strcmp(EEG.event(j).type, [markerStartLetter '  15']))
             if(toggle_skip)
-                % Check if the event 2 positions before is MI or Rest
                 if (j > 2) % Ensure we don't go out of bounds
                     is_pre_trial = ~isempty(boundary_event_index) && (j - 2 < boundary_event_index);
 
                     if (strcmp(EEG.event(j - 2).type, [markerStartLetter '  3'])) % It's an MI trial
                         if is_pre_trial
                             skipped_mi_count_pre = skipped_mi_count_pre + 1;
-                        else % It's a post trial (or no boundary found, treat as post/all)
+                        else
                             skipped_mi_count_post = skipped_mi_count_post + 1;
                         end
-                        EEG.event(j-2).type = 'skip'; % Mark for removal
+                        EEG.event(j-2).type = 'skip';
                     elseif (strcmp(EEG.event(j - 2).type, [markerStartLetter '  4'])) % It's a Rest trial
                         if is_pre_trial
                             skipped_rest_count_pre = skipped_rest_count_pre + 1;
-                        else % It's a post trial
+                        else
                             skipped_rest_count_post = skipped_rest_count_post + 1;
                         end
-                        EEG.event(j-2).type = 'skip'; % Mark for removal
+                        EEG.event(j-2).type = 'skip';
                     end
                 end
             end
@@ -281,47 +271,54 @@ for sub = 26:nSubject
         filename, skipped_mi_count_pre, skipped_mi_count_post, skipped_rest_count_pre, skipped_rest_count_post);
 
 
-    %% Epoching for MI and Rest conditions based on TapStart marker
+    %% Epoching for different conditions
     fprintf('Epoching data...\n');
 
     % Get all event types *after* cleaning and marking skips
     all_event_types = {EEG.event.type};
 
     for evt = 1:size(events, 1)
-        % Extract epochs for the current condition (e.g., MI or Rest)
-        fprintf('Processing %s condition...\n', events{evt, 2});
-        
-        % Find all valid (not 'skip') events for the current condition
         event_marker = events{evt, 1};
+        event_name = events{evt, 2};
+        fprintf('Processing %s condition...\n', event_name);
+        
         events_only_indices = find(strcmp(all_event_types, event_marker));
 
-        % Loop to create three sets of epochs: pre-TapStart, post-TapStart, and all
+        % Loop to create three sets of epochs: pre, post, and all
         for s = 1:3
             selected = [];
             epoch_label = '';
 
-            if s == 1 % Pre-TapStart trials
-                epoch_label = 'pre';
-                fprintf('Processing %s %s...\n', events{evt, 2}, epoch_label);
-                if ~isempty(boundary_event_index)
-                    % if(strcmp(EEG.event(j - 2).type, [markerStartLetter '  3']) )
-                    selected = events_only_indices(events_only_indices < boundary_event_index);
+            % Determine the epoch label (pre, post, all)
+            if s == 1, epoch_label = 'pre'; elseif s == 2, epoch_label = 'post'; else, epoch_label = 'all'; end
+            fprintf('Processing %s %s...\n', event_name, epoch_label);
+
+            % --- Logic to define 'selected' indices based on event type ---
+            if strcmp(event_name, 'MI') || strcmp(event_name, 'Rest')
+                % Use boundary marker logic for MI/Rest
+                if s == 1 % Pre
+                    if ~isempty(boundary_event_index), selected = events_only_indices(events_only_indices < boundary_event_index); end
+                elseif s == 2 % Post
+                    if ~isempty(boundary_event_index), selected = events_only_indices(events_only_indices > boundary_event_index); end
+                else % All
+                    selected = events_only_indices;
                 end
-
-            elseif s == 2 % Post-TapStart trials
-                epoch_label = 'post';
-                fprintf('Processing %s %s...\n', events{evt, 2}, epoch_label);
-                 if ~isempty(boundary_event_index)
-                    selected = events_only_indices(events_only_indices > boundary_event_index);
-                 end
-
-            else % All trials
-                epoch_label = 'all';
-                fprintf('Processing %s %s...\n', events{evt, 2}, epoch_label);
-                selected = events_only_indices;
+            else
+                % Use count-from-end logic for other events (TapStart/End)
+                if s == 1 % Pre (last 40 to last 21 trials)
+                    if length(events_only_indices) >= 40
+                        selected = events_only_indices(end-39:end-20);
+                    end
+                elseif s == 2 % Post (last 20 trials)
+                    if length(events_only_indices) >= 20
+                        selected = events_only_indices(end-19:end);
+                    end
+                else % All
+                    selected = events_only_indices;
+                end
             end
             
-            epoch_file = sprintf('%s_%s_%s.set', filename, events{evt, 2}, epoch_label);
+            epoch_file = sprintf('%s_%s_%s.set', filename, event_name, epoch_label);
 
             if isempty(selected)
                 fprintf('  - No events found for this condition/%s. Skipping.\n', epoch_label);
@@ -331,10 +328,8 @@ for sub = 26:nSubject
             fprintf('  - Found %d events for %s.\n', length(selected), epoch_label);
 
             % Temporarily modify event types for selected events to create unique identifiers.
-            % This ensures pop_epoch only grabs the trials for the current selection (pre, post, or all).
-            temp_event_type = sprintf('TEMP_%s_%s', events{evt, 2}, epoch_label);
+            temp_event_type = sprintf('TEMP_%s_%s', event_name, epoch_label);
             
-            % Store original types and set temporary types for selected events
             for i = 1:length(selected)
                 EEG.event(selected(i)).type = temp_event_type;
             end
@@ -342,20 +337,12 @@ for sub = 26:nSubject
             % Epoch around the temporarily renamed events
             epoch = pop_epoch(EEG, {temp_event_type}, epoch_period, 'epochinfo', 'yes');
             
-            % Restore original event types in the main EEG structure to not affect subsequent loops
+            % Restore original event types in the main EEG structure
             for i = 1:length(selected)
-                % Find the original event by its index and restore its type
-                original_event_index_in_EEG = selected(i);
-                EEG.event(original_event_index_in_EEG).type = event_marker;
+                EEG.event(selected(i)).type = event_marker;
             end
             
-            % Apply baseline correction
-            % epoch = pop_rmbase(epoch, baseline_period);
             epoch = eeg_checkset(epoch);
-            
-            % Display epoch info
-            fprintf('  - Number of epochs: %d\n', epoch.trials);
-            fprintf('  - Epoch length: %.1f seconds\n', epoch.xmax - epoch.xmin);
             
             % Save epoched data
             epoch = pop_saveset(epoch, ...
@@ -377,6 +364,6 @@ disp('Summary of Self-Reported "NO" Evaluations:');
 disp(skipped_counts_summary);
 
 % Optionally, save the results to a file for later analysis
-% save('skipped_counts_summary.mat', 'skipped_counts_summary');
-% writecell(skipped_counts_summary, 'skipped_counts_summary.csv');
+save('skipped_counts_summary.mat', 'skipped_counts_summary');
+writecell(skipped_counts_summary, 'skipped_counts_summary.csv');
 fprintf('Skipped counts summary has been generated.\n');
