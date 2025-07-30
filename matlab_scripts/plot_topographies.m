@@ -8,7 +8,7 @@
 
 clc;
 % clear;
-close all;
+% close all;
 
 %% USER-DEFINED PARAMETERS
 
@@ -18,8 +18,8 @@ chlocs_file = 'reference/EEG_chlocs_60.mat';
 
 % --- Plotting Selections ---
 event_to_plot = 'MI';       % Choose: 'MI' or 'Rest'
-timepoint_to_plot = 'Post'; % Choose: 'Pre' or 'Post'
-band_to_plot = 'AB';      % Choose: 'Alpha' or 'Beta'
+timepoint_to_plot = 'Pre'; % Choose: 'Pre' or 'Post'
+band_to_plot = 'Alpha';      % Choose: 'Alpha' or 'Beta'
 
 % --- Topography Parameters ---
 freq_bands = {
@@ -27,20 +27,20 @@ freq_bands = {
     'Beta', [13 30];
     'AB', [8 13]
 };
-topo_time_window = [0.5 1.0]; % Time window for averaging (in seconds)
-topo_clim = [-5 5];           % Color limits for topoplots
+topo_time_window = [0.5 1.5]; % Time window for averaging (in seconds)
+topo_clim = [-3 3];           % Color limits for topoplots
 
 % --- Plot Saving Parameters ---
 save_plots = true;
 plot_output_dir = 'individual_topo_plots';
 
 %% Load Data and Setup
-fprintf('Loading data...\n');
-if ~exist(results_file, 'file')
-    error('Results file not found: %s. Please run the main analysis script first.', results_file);
-end
-load(results_file); % Loads 'all_tf_data'
-load(chlocs_file);  % Loads 'EEG_chlocs'
+% fprintf('Loading data...\n');
+% if ~exist(results_file, 'file')
+%     error('Results file not found: %s. Please run the main analysis script first.', results_file);
+% end
+% load(results_file); % Loads 'all_tf_data'
+% load(chlocs_file);  % Loads 'EEG_chlocs'
 
 if save_plots && ~exist(plot_output_dir, 'dir')
     mkdir(plot_output_dir);

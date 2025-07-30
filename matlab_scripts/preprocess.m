@@ -1,10 +1,9 @@
 %%%% EEG Preprocessing Pipeline
 %%%% Adapted for MI, Rest, and Tapping conditions
-%%%% Epoch: [-3 4] seconds
 
 % clear all;
 % close all;
-clc;
+% clc;
 
 %% Set paths
 path_to_rawdata = './data/CBH/';
@@ -16,7 +15,7 @@ if ~exist(path_to_epoched, 'dir')
 end
 
 %% Define parameters
-nSubject = 29;  % Number of subjects
+nSubject = 31;  % Number of subjects
 subjectNum = 0;
 filename = "";
 coinType = "gold";  % Filter for specific coin events
@@ -235,7 +234,7 @@ for sub = 1:nSubject
         end
 
         % If EVAL NO, then toggle skip for Rest/MI marker before
-        if (strcmp(EEG.event(j).type, [markerStartLetter '  15']))
+        if (strcmp(EEG.event(j).type, [markerStartLetter ' 15']))
             if(toggle_skip)
                 if (j > 2) % Ensure we don't go out of bounds
                     is_pre_trial = ~isempty(boundary_event_index) && (j - 2 < boundary_event_index);
