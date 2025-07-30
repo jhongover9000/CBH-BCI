@@ -18,7 +18,7 @@ clear;
 close all;
 
 %% Core Parameters
-nSubject = 31;
+nSubject = 32;
 nChannels = 60;
 SR = 250;  % Sampling rate
 

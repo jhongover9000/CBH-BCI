@@ -15,7 +15,7 @@ if ~exist(path_to_epoched, 'dir')
 end
 
 %% Define parameters
-nSubject = 31;  % Number of subjects
+nSubject = 32;  % Number of subjects
 subjectNum = 0;
 filename = "";
 coinType = "gold";  % Filter for specific coin events
