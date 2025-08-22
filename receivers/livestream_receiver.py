@@ -41,7 +41,7 @@ class LivestreamReceiver:
         self.socket = socket(AF_INET, SOCK_STREAM)
         self.channel_count = 60
         self.sampling_interval_us = 1000000
-        self.sampling_frequency = 1000
+        self.sampling_frequency = 250
         self.resolutions = []
         self.channel_names = []
         self.info = None

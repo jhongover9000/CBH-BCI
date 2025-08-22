@@ -1596,9 +1596,9 @@ class EEGMarkerGUI:
         is_pre_assessment = not self.is_post_assessment.get()
         
         if is_pre_assessment:
-            self.instruction = "Pre-Training Motor Imagery Assessment\n\n\n\nAfter a fixation period, there will be a beep cue and depending on the visual cue presented, you will need to perform a different task. After each task, you will evaluate your performance, pressing a key with your left hand.\n\n+ : Fixation\nImage of Hand : Motor Imagery\n \"Rest\" : Resting \n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
+            self.instruction = "Pre-Training Motor Imagery Assessment\n\n\n\nAfter a fixation period, there will be a beep cue and depending on the visual cue presented, you will need to perform a different task. After each task, you will evaluate your performance, pressing a key with your left hand.\n\n+ : Fixation\n \u2022 : Motor Imagery\n \"Rest\" : Resting \n\nPlease let the experimenter know when you are ready to view the motor movement to imagine."
         else:
-            self.instruction = "Post-Training Motor Imagery Assessment\n\n\n\nAfter a fixation period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance, pressing a key with your left hand.\n\n+ : Fixation\nImage of Hand : Motor Imagery\n \"Rest\" : Rest\n\nPlease let the experimenter know when you are ready to begin."
+            self.instruction = "Post-Training Motor Imagery Assessment\n\n\n\nAfter a fixation period, you will be asked to either imagine a motor movement or maintain a resting state. After each task, you will evaluate your performance, pressing a key with your left hand.\n\n+ : Fixation\n\u2022 : Motor Imagery\n \"Rest\" : Rest\n\nPlease let the experimenter know when you are ready to begin."
         
         # Update the stimulus if it exists
         if hasattr(self, 'instruction_stim'):
@@ -2003,7 +2003,7 @@ class EEGMarkerGUI:
         ))
         
         # Move to next trial
-        self.root.after(500, self.start_trial)  # Small delay before next trial
+        self.root.after(1000, self.start_trial)  # Small delay before next trial
 
     def generate_counterbalanced_sequence(self, n_trials):
         """Generate a counterbalanced sequence of trials

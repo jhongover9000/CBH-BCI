@@ -1,0 +1,52 @@
+Evaluation Results - Subject 011 - POST Assessment
+Date/Time: 2025-07-09 18:01:28
+======================================================================
+
+Trial | Activity Type | Response | Response Time (s)
+----------------------------------------------------------------------
+    1 | imagery      | YES      |           0.67
+    2 | rest         | YES      |           1.09
+    3 | rest         | NO       |           0.46
+    4 | imagery      | YES      |           0.70
+    5 | rest         | YES      |           0.52
+    6 | imagery      | YES      |           0.55
+    7 | imagery      | YES      |           0.40
+    8 | rest         | YES      |           1.43
+    9 | imagery      | YES      |           0.46
+   10 | rest         | YES      |           1.15
+   11 | imagery      | YES      |           1.03
+   12 | rest         | YES      |           1.03
+   13 | rest         | YES      |           2.48
+   14 | imagery      | YES      |           1.31
+   15 | rest         | YES      |           1.12
+   16 | imagery      | YES      |           0.73
+   17 | rest         | YES      |           1.09
+   18 | imagery      | YES      |           0.67
+   19 | rest         | YES      |           0.94
+   20 | imagery      | YES      |           0.70
+   21 | imagery      | YES      |           0.61
+   22 | rest         | YES      |           1.30
+   23 | imagery      | YES      |           0.31
+   24 | rest         | YES      |           0.94
+   25 | rest         | YES      |           0.73
+   26 | imagery      | YES      |           0.58
+   27 | rest         | YES      |           0.58
+   28 | imagery      | YES      |           0.34
+   29 | rest         | YES      |           0.37
+   30 | imagery      | YES      |           0.43
+   31 | imagery      | YES      |           0.40
+   32 | rest         | YES      |           0.61
+   33 | rest         | YES      |           0.67
+   34 | imagery      | YES      |           0.46
+   35 | rest         | YES      |           0.24
+   36 | imagery      | YES      |           0.46
+   37 | imagery      | YES      |           0.40
+   38 | rest         | YES      |           0.61
+   39 | imagery      | YES      |           0.49
+   40 | rest         | YES      |           0.64
+
+Summary Statistics:
+----------------------------------------------------------------------
+Motor Imagery Trials: 20, YES responses: 20 (100.0%)
+Rest Trials: 20, YES responses: 19 (95.0%)
+Total Trials: 40, YES responses: 39 (97.5%)

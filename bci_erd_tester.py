@@ -223,6 +223,10 @@ class TCPVideoController:
                         (text_x - padding, text_y - text_size[1] - padding),
                         (text_x + text_size[0] + padding, text_y + padding),
                         (150,150,150), -1)  # Black background
+            cv2.rectangle(overlay, 
+                        (text_x - padding, text_y - text_size[1] - padding),
+                        (text_x + text_size[0] + padding, text_y + padding),
+                        (150,150,150), -1)  # Black background
             
             # Add text
             cv2.putText(overlay, instruction_text, (text_x, text_y), 
@@ -278,7 +282,7 @@ class TCPVideoController:
             ret, frame = self.cap.read()
             if not ret:
                 print("Video playback completed")
-                time.sleep(2)
+                # time.sleep(2)
                 break
             
             # Add overlays based on timing

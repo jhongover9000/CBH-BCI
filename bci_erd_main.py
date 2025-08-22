@@ -42,8 +42,8 @@ class BCIConfig:
     # Buffer settings
     MAIN_BUFFER_DURATION = 10.0      # seconds
     BASELINE_BUFFER_DURATION = 2.0  # seconds (≤ main buffer)
-    OPERATING_WINDOW_DURATION = 1.0  # seconds
-    WINDOW_OVERLAP = 0.75            # overlap fraction (0.5 = 50% overlap)
+    OPERATING_WINDOW_DURATION = 0.5  # seconds
+    WINDOW_OVERLAP = 0.5            # overlap fraction (0.5 = 50% overlap)
     
     # ERD detection settings
     # ERD_CHANNELS = ['C3','FC3', 'CP3', 'C1', 'C5', 'FC5', 'FC1', 'CP5', 'CP1']
