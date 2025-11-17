@@ -23,9 +23,7 @@ nSubject_total = 44; % The total number of subjects in the original dataset
 subjects_to_exclude = [1,2,4,33]; % Keep empty [] to include all subjects
 
 % Define event types, groups, and timepoints
-events = {'MI';
-          'Rest'
-};
+events = {'MI', 'Rest'};
 groups = {'Haptic', 'NonHaptic'};
 timepoints = {'Pre', 'Post'};
 
@@ -157,14 +155,14 @@ stat_alpha = 0.05;
 
 % --- Parameters for ROI definition and subsequent tests ---
 stat_band_name = 'Alpha';
-stat_band_range = [8 30];
+stat_band_range = [13 30];
 stat_freq_idx = dsearchn(frex', stat_band_range');
 roi_time_window = [0.5 2.5]; 
 roi_time_idx = dsearchn(times', roi_time_window');
 
 % --- Manual ROI Selection ---
-use_manual_roi = true; % SET TO true TO USE THE MANUAL LIST BELOW
-manual_roi_channels = {'C3', 'CP3','CP5','C5'}; % Ignored if use_manual_roi is false
+use_manual_roi = false; % SET TO true TO USE THE MANUAL LIST BELOW
+manual_roi_channels = {'C3', 'CP3'}; % Ignored if use_manual_roi is false
 
 all_stats = struct();
 

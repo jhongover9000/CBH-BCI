@@ -15,7 +15,7 @@ if ~exist(path_to_epoched, 'dir')
 end
 
 %% Define parameters
-nSubject = 32;  % Number of subjects
+nSubject = 44;  % Number of subjects
 subjectNum = 0;
 filename = "";
 coinType = "gold";  % Filter for specific coin events
@@ -35,14 +35,14 @@ end
 % Define all events to be epoched
 events = {
           [markerStartLetter '  3'], 'MI';       % Motor Imagery
-          [markerStartLetter '  4'], 'Rest';     % Rest condition
-          [markerStartLetter '  9'], 'TapStart'; % Tapzone start
-          [markerStartLetter ' 11'], 'TapEnd'    % Tapzone end
+          % [markerStartLetter '  4'], 'Rest';     % Rest condition
+          % [markerStartLetter '  9'], 'TapStart'; % Tapzone start
+          % [markerStartLetter ' 11'], 'TapEnd'    % Tapzone end
           };
 
 
 % Epoch parameters
-epoch_period = [-3 4];          % -3 to 4 seconds
+epoch_period = [-5 5];          % -3 to 4 seconds
 baseline_period = [-2000 -1000];     % baseline
 
 % Load channel locations
@@ -50,12 +50,13 @@ load ./reference/NewEasyCap63.mat  % Assuming this file exists
 
 %% Initialize summary storage
 % Create a cell array to store the counts of skipped trials for each subject.
-skipped_counts_summary = cell(nSubject + 1, 5);
-skipped_counts_summary(1,:) = {'SubjectID', 'Skipped_MI_Pre', 'Skipped_MI_Post', 'Skipped_Rest_Pre', 'Skipped_Rest_Post'};
+load skipped_counts_summary.mat
+% skipped_counts_summary = cell(nSubject + 1, 5);
+% skipped_counts_summary(1,:) = {'SubjectID', 'Skipped_MI_Pre', 'Skipped_MI_Post', 'Skipped_Rest_Pre', 'Skipped_Rest_Post'};
 
 
 %% Main preprocessing loop
-for sub = 1:nSubject
+for sub = 13:nSubject
     
     % Initialize counters for the current subject
     skipped_mi_count_pre = 0;
@@ -83,9 +84,9 @@ for sub = 1:nSubject
     % Redefine events with the correct marker letter for the subject
     events = {
               [markerStartLetter '  3'], 'MI';
-              [markerStartLetter '  4'], 'Rest';
-              [markerStartLetter '  9'], 'TapStart';
-              [markerStartLetter ' 11'], 'TapEnd'
+              % [markerStartLetter '  4'], 'Rest';
+              % [markerStartLetter '  9'], 'TapStart';
+              % [markerStartLetter ' 11'], 'TapEnd'
               };
 
     disp(set_file)
@@ -234,7 +235,7 @@ for sub = 1:nSubject
         end
 
         % If EVAL NO, then toggle skip for Rest/MI marker before
-        if (strcmp(EEG.event(j).type, [markerStartLetter ' 15']))
+        if (strcmp(EEG.event(j).type, [markerStartLetter ' 15']) && sub ~= 14 && sub ~= 33)
             if(toggle_skip)
                 if (j > 2) % Ensure we don't go out of bounds
                     is_pre_trial = ~isempty(boundary_event_index) && (j - 2 < boundary_event_index);
@@ -269,6 +270,59 @@ for sub = 1:nSubject
     fprintf('Subject %s -> Skipped MI (Pre/Post): %d/%d, Skipped Rest (Pre/Post): %d/%d\n', ...
         filename, skipped_mi_count_pre, skipped_mi_count_post, skipped_rest_count_pre, skipped_rest_count_post);
 
+    % ===== ICA (continuous, before epoching) =====
+    % Train ICA on a 1 Hz high-pass copy (recommended for stable unmixing),
+    % then apply weights to the original 0.1–85 Hz data and reject artifact ICs.
+    
+    fprintf('Preparing ICA training copy (1 Hz high-pass)...\n');
+    EEG_ica = pop_eegfiltnew(EEG, 1, []);     % 1 Hz HP *for training only*
+    EEG_ica = eeg_checkset(EEG_ica);
+    
+    % --- Decide PCA dimensionality (rank) ---
+    % Average reference reduces rank by ~1; channel interpolation also lowers rank.
+    if exist('missChNum','var'), nInterp = numel(missChNum); else, nInterp = 0; end
+    approxRank = max(1, EEG_ica.nbchan - 1 - nInterp);
+    
+    fprintf('Running ICA (pca=%d)...\n', approxRank);
+    % If PICARD plugin is available, it’s faster; otherwise use runica (extended).
+    if exist('picard', 'file')
+        EEG_ica = pop_runica(EEG_ica, 'icatype','picard', 'pca', approxRank);
+    else
+        EEG_ica = pop_runica(EEG_ica, 'icatype','runica', ...
+            'extended', 1, 'stop', 1e-7, 'maxsteps', 512, 'pca', approxRank);
+    end
+    EEG_ica = eeg_checkset(EEG_ica);
+    
+    % --- Label ICs (ICLabel) and pick artifact components ---
+    badICs = [];
+    if exist('pop_iclabel','file')
+        EEG_ica = pop_iclabel(EEG_ica, 'default');
+        cls = EEG_ica.etc.ic_classification.ICLabel.classifications;
+        % ICLabel order: [Brain, Muscle, Eye, Heart, LineNoise, ChannelNoise, Other]
+        % Conservative auto-reject for MI: remove strong Eye/Muscle/Line/ChanNoise.
+        badICs = find(cls(:,2) >= 0.90 | ...  % Muscle
+                      cls(:,3) >= 0.90 | ...  % Eye (blinks/saccades)
+                      cls(:,5) >= 0.90 | ...  % Line Noise
+                      cls(:,6) >= 0.90);      % Channel Noise
+        fprintf('ICs flagged for removal: %s\n', mat2str(badICs));
+    else
+        fprintf('ICLabel not found. Proceeding without auto-labels.\n');
+    end
+    
+    % --- Transfer ICA to the original bandpass data and remove bad ICs ---
+    EEG.icaweights  = EEG_ica.icaweights;
+    EEG.icasphere   = EEG_ica.icasphere;
+    EEG.icawinv     = EEG_ica.icawinv;
+    EEG.icachansind = EEG_ica.icachansind;
+    if isfield(EEG_ica, 'etc') && isfield(EEG_ica.etc, 'ic_classification')
+        EEG.etc.ic_classification = EEG_ica.etc.ic_classification; % keep labels
+    end
+    
+    if ~isempty(badICs)
+        fprintf('Removing %d artifact IC(s) and back-projecting clean data...\n', numel(badICs));
+        EEG = pop_subcomp(EEG, badICs, 0);   % 0 = do not permanently remove IC matrices
+    end
+    EEG = eeg_checkset(EEG);
 
     %% Epoching for different conditions
     fprintf('Epoching data...\n');
@@ -317,7 +371,7 @@ for sub = 1:nSubject
                 end
             end
             
-            epoch_file = sprintf('%s_%s_%s.set', filename, event_name, epoch_label);
+            epoch_file = sprintf('%s_%s_%s_ICA.set', filename, event_name, epoch_label);
 
             if isempty(selected)
                 fprintf('  - No events found for this condition/%s. Skipping.\n', epoch_label);

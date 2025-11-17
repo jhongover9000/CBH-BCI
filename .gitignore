@@ -22,3 +22,5 @@ matlab_scripts/tf_MI_db.mat
 matlab_scripts/tf_Rest_db.mat
 /matlab_scripts/power
 matlab_scripts/time_frequency_analysis_ALL_RESULTS.mat
+matlab_scripts/time_frequency_analysis_ALL_RESULTS_ICA.mat
+matlab_scripts/time_frequency_analysis_TAPSTART.mat

@@ -35,12 +35,12 @@ save_plots = true;
 plot_output_dir = 'individual_topo_plots';
 
 %% Load Data and Setup
-% fprintf('Loading data...\n');
-% if ~exist(results_file, 'file')
-%     error('Results file not found: %s. Please run the main analysis script first.', results_file);
-% end
-% load(results_file); % Loads 'all_tf_data'
-% load(chlocs_file);  % Loads 'EEG_chlocs'
+fprintf('Loading data...\n');
+if ~exist(results_file, 'file')
+    error('Results file not found: %s. Please run the main analysis script first.', results_file);
+end
+load(results_file); % Loads 'all_tf_data'
+load(chlocs_file);  % Loads 'EEG_chlocs'
 
 if save_plots && ~exist(plot_output_dir, 'dir')
     mkdir(plot_output_dir);

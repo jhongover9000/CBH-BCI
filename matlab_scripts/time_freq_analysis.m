@@ -4,29 +4,23 @@
 % 1. Automatically loop through experimental groups and time points.
 % 2. Perform time-frequency analysis for each combination.
 % 3. Store results in a single structured variable.
-% 4. Perform a comprehensive statistical analysis to:
-%    a. Identify data-driven Regions of Interest (ROIs) based on significant
-%       activity across all subjects.
-%    b. Conduct within-group tests (Pre vs. Post) on these ROIs.
-%    c. Conduct between-group tests on the change (Post-Pre) in these ROIs.
-% 5. Generate and save comparative plots for visualization.
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 clc;
-clear;
-close all;
+% clear;
+% close all;
 
 %% Core Parameters
-nSubject = 32;
+nSubject = 44;
 nChannels = 60;
 SR = 250;  % Sampling rate
 
 % Define event types to analyze
 events = {
     'MI';
-    'Rest';
-    % 'TapStart' % Uncomment to include this event
+    % 'Rest';
+    % 'TapStart'
 };
 nEvents = length(events);
 
@@ -49,13 +43,13 @@ num_frex = max_freq - min_freq;
 frex = logspace(log10(min_freq), log10(max_freq), num_frex);
 
 % Wavelet parameters
-range_cycles = [2 12];
+range_cycles = [3 15]; % 6 - 30 Hz
 s = logspace(log10(range_cycles(1)), log10(range_cycles(2)), num_frex) ./ (2*pi*frex);
 wavtime = -2:1/SR:2;
 half_wave = (length(wavtime)-1)/2;
 
 % Time parameters
-epoch_period = [-3 4];
+epoch_period = [-5 5];
 times = linspace(epoch_period(1), epoch_period(2), diff(epoch_period) * SR);
 nTimes = length(times);
 
@@ -105,9 +99,9 @@ for g = 1:length(groups)
             for evt = 1:nEvents
                 event_name = events{evt};
                 if is_pre
-                    eeg_file = sprintf('%s_%s_%s.set', filename, event_name, 'pre');
+                    eeg_file = sprintf('%s_%s_%s_ICA.set', filename, event_name, 'pre');
                 else
-                    eeg_file = sprintf('%s_%s_%s.set', filename, event_name, 'post');
+                    eeg_file = sprintf('%s_%s_%s_ICA.set', filename, event_name, 'post');
                 end
                 filepath = fullfile(eegset_dir, eeg_file);
 
@@ -163,5 +157,5 @@ end
 
 %% Save All Processed Data
 fprintf('\nSaving all processed data...\n');
-save('time_frequency_analysis_ALL_RESULTS.mat', 'all_tf_data', '-v7.3');
+save('time_frequency_analysis_ALL_RESULTS_ICA.mat', 'all_tf_data', '-v7.3');
 fprintf('Data saved to time_frequency_analysis_ALL_RESULTS.mat\n');
