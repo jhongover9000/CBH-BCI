@@ -54,7 +54,7 @@ times = linspace(epoch_period(1), epoch_period(2), diff(epoch_period) * SR);
 nTimes = length(times);
 
 % Baseline for dB conversion
-baseline_window = [-0.8 -0.2]; % in seconds
+baseline_window = [-0.5 0]; % in seconds
 baseidx = dsearchn(times', baseline_window');
 
 %% Initialize Master Data Structure

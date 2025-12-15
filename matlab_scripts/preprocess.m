@@ -34,8 +34,8 @@ end
 
 % Define all events to be epoched
 events = {
-          [markerStartLetter '  3'], 'MI';       % Motor Imagery
-          % [markerStartLetter '  4'], 'Rest';     % Rest condition
+          % [markerStartLetter '  3'], 'MI';       % Motor Imagery
+          [markerStartLetter '  4'], 'Rest';     % Rest condition
           % [markerStartLetter '  9'], 'TapStart'; % Tapzone start
           % [markerStartLetter ' 11'], 'TapEnd'    % Tapzone end
           };
@@ -83,8 +83,8 @@ for sub = 13:nSubject
     
     % Redefine events with the correct marker letter for the subject
     events = {
-              [markerStartLetter '  3'], 'MI';
-              % [markerStartLetter '  4'], 'Rest';
+              % [markerStartLetter '  3'], 'MI';
+              [markerStartLetter '  4'], 'Rest';
               % [markerStartLetter '  9'], 'TapStart';
               % [markerStartLetter ' 11'], 'TapEnd'
               };

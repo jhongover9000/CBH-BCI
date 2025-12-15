@@ -1,13 +1,13 @@
 %% Setup and Load Data
 clc;
 % clear;
-close all;
+% close all;
 %% Load Channels
 % Make sure this file is in your MATLAB path
 % load('./reference/EEG_chlocs_60.mat'); % Loads 'EEG_chlocs'
 %% Load Data
 fprintf('Loading analysis data...\n');
-load('time_frequency_analysis_ALL_RESULTS_ICA.mat'); % Loads 'all_tf_data'
+% load('./tfa/time_frequency_analysis_ALL_RESULTS_ICA_v2.mat'); % Loads 'all_tf_data'
 
 %% Initialize
 % --- Define key parameters from the analysis script
@@ -35,7 +35,8 @@ timepoints = {'Pre', 'Post'}; % Timepoints processed
 % --------------------------------------------------
 
 % Subject Exclusion
-subjects_to_exclude = [1,2,4,33];
+subjects_to_exclude = [];
+% subjects_to_exclude = [1,2,4,33];
 
 %% Exclude Subjects
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -85,9 +86,9 @@ data_C4 = all_tf_data.NonHaptic.Post.(event_to_plot);% Condition 4: NonHaptic Po
 fprintf('Generating combined topography plot...\n');
 % --- Define Frequencies, Limits, and Colors ---
 % Find frequency *indices*
-f_range_topo = [8 13];
+% f_range_topo = [8 13];
 % f_range_topo = [13 30];
-% f_range_topo = [8 30];
+f_range_topo = [8 30];
 
 f_idx_topo(1) = dsearchn(frex', f_range_topo(1));
 f_idx_topo(2) = dsearchn(frex', f_range_topo(2));
@@ -97,8 +98,8 @@ z1 = -2; % Z-limit min
 z2 = 2;  % Z-limit max
 c = jet;
 % --- Define Time-Series Parameters ---
-n_steps = 10;  % Number of time steps to plot 
-step_ms = 250; % Step size in milliseconds 
+n_steps = 20;  % Number of time steps to plot 
+step_ms = 100; % Step size in milliseconds 
 % Convert step_ms to number of time *samples*
 step_samples = round(step_ms / (1000/SR));
 % --- Create the Combined Figure ---
@@ -187,48 +188,11 @@ for i = 1:n_steps
 end
 fprintf('Topography plot complete.\n');
 
-
-
-
-%% Plot ERSP traces for all channels
-nCh = 60;
-% Find frequency *indices*
-f_range_ersp = [8 30]; % Original script used f=[2 8]
-f_idx_ersp(1) = dsearchn(frex', f_range_ersp(1));
-f_idx_ersp(2) = dsearchn(frex', f_range_ersp(2));
-fprintf('ERSP trace frequency range: %.2f Hz to %.2f Hz (indices %d to %d)\n', ...
-        frex(f_idx_ersp(1)), frex(f_idx_ersp(2)), f_idx_ersp(1), f_idx_ersp(2));
-figure('Name', 'ERSP Traces per Channel') ;
-for plotId = 1 : nCh
-    
-    subplot(6, 10, plotId) ;
-    
-    % Average over subjects (1) and frequencies (2)
-    temp1 = squeeze(mean(mean(data_C1(:, f_idx_ersp(1):f_idx_ersp(2), :, plotId), 1), 2));
-    plot(times, temp1, 'b', 'LineWidth', 1) % Haptic Pre (Blue)
-    hold on
-    
-    temp2 = squeeze(mean(mean(data_C2(:, f_idx_ersp(1):f_idx_ersp(2), :, plotId), 1), 2));
-    plot(times, temp2, 'c', 'LineWidth', 1) % Haptic Post (Cyan)
-    
-    temp3 = squeeze(mean(mean(data_C3(:, f_idx_ersp(1):f_idx_ersp(2), :, plotId), 1), 2));
-    plot(times, temp3, 'r', 'LineWidth', 1) % NonHaptic Pre (Red)
-    
-    temp4 = squeeze(mean(mean(data_C4(:, f_idx_ersp(1):f_idx_ersp(2), :, plotId), 1), 2));
-    plot(times, temp4, 'm', 'LineWidth', 1) % NonHaptic Post (Magenta)
-    
-    xlim([-500 1000])
-    xline(0, '--k');
-    title(vals{plotId})
-end
-% Add a legend to the figure
-lgd = legend('Hap Pre', 'Hap Post', 'NonHap Pre', 'NonHap Post');
-lgd.Position = [0.5, 0.01, 0.1, 0.05]; % [x, y, width, height]
-lgd.Orientation = 'horizontal';
-set(gcf, 'color', 'w');
 %% Plotting TF plot averaged over subjects
 % Select channels to average over
-chs={'CP1','CP3','C3','C5','C1','CP5'};
+chs={'C1','C3','C5', ...
+            'CP1','CP3','CP5', ...
+            'P1','P3','P5'};
 % chs={'FC1', 'C3', 'CP3', 'C1'};
 idx=[];
 ctr=1;
