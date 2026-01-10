@@ -21,29 +21,9 @@ filename = "";
 coinType = "gold";  % Filter for specific coin events
 toggle_skip = true; % Filter out self-reported unsuccessful MI/Rest trials
 
-% For 1 subject
-if nSubject == 1 && (subjectNum < 10)
-    filename = ['CBH000' int2str(subjectNum)];  % or choose a specific file
-end
-
-if nSubject == 1 && mod(subjectNum,2) == 1
-    markerStartLetter = 'S';
-else
-    markerStartLetter = 'R';
-end
-
-% Define all events to be epoched
-events = {
-          % [markerStartLetter '  3'], 'MI';       % Motor Imagery
-          [markerStartLetter '  4'], 'Rest';     % Rest condition
-          % [markerStartLetter '  9'], 'TapStart'; % Tapzone start
-          % [markerStartLetter ' 11'], 'TapEnd'    % Tapzone end
-          };
-
 
 % Epoch parameters
 epoch_period = [-5 5];          % -3 to 4 seconds
-baseline_period = [-2000 -1000];     % baseline
 
 % Load channel locations
 load ./reference/NewEasyCap63.mat  % Assuming this file exists
@@ -51,12 +31,12 @@ load ./reference/NewEasyCap63.mat  % Assuming this file exists
 %% Initialize summary storage
 % Create a cell array to store the counts of skipped trials for each subject.
 load skipped_counts_summary.mat
-% skipped_counts_summary = cell(nSubject + 1, 5);
-% skipped_counts_summary(1,:) = {'SubjectID', 'Skipped_MI_Pre', 'Skipped_MI_Post', 'Skipped_Rest_Pre', 'Skipped_Rest_Post'};
+skipped_counts_summary = cell(nSubject + 1, 5);
+skipped_counts_summary(1,:) = {'SubjectID', 'Skipped_MI_Pre', 'Skipped_MI_Post', 'Skipped_Rest_Pre', 'Skipped_Rest_Post'};
 
 
 %% Main preprocessing loop
-for sub = 13:nSubject
+for sub = 1:nSubject
     
     % Initialize counters for the current subject
     skipped_mi_count_pre = 0;
@@ -83,10 +63,10 @@ for sub = 13:nSubject
     
     % Redefine events with the correct marker letter for the subject
     events = {
-              % [markerStartLetter '  3'], 'MI';
+              [markerStartLetter '  3'], 'MI';
               [markerStartLetter '  4'], 'Rest';
-              % [markerStartLetter '  9'], 'TapStart';
-              % [markerStartLetter ' 11'], 'TapEnd'
+              [markerStartLetter '  9'], 'TapStart';
+              [markerStartLetter ' 11'], 'TapEnd'
               };
 
     disp(set_file)
@@ -123,8 +103,9 @@ for sub = 13:nSubject
     %% Filtering
     fprintf('Applying filters...\n');
     
-    % Bandpass filter [0.1-85Hz]
-    EEG = pop_eegfiltnew(EEG, 0.1, 85, 33000, 0, [], 1);
+    % Bandpass filter [0.1-80 Hz]
+    EEG = pop_eegfiltnew(EEG, [], 80);   % LP
+    EEG = pop_eegfiltnew(EEG, 1,  []);   % HP
     EEG = eeg_checkset(EEG);
     
     % Notch filter at 50Hz
@@ -140,7 +121,17 @@ for sub = 13:nSubject
     saveEEG = struct(EEG);
     
     % Apply ASR
-    EEG = clean_rawdata(EEG, 10, [0.25 0.75], 0.8, 4, 20, 0.5);
+    EEG = clean_artifacts(EEG, ...
+      'FlatlineCriterion',   10, ...
+      'Highpass',            'off', ...
+      'ChannelCriterion',    0.8, ...
+      'LineNoiseCriterion',  'off', ...
+      'BurstCriterion',      30, ...   
+      'WindowCriterion',     'off', ... 
+      'BurstRejection',      'off', ... 
+      'Distance',            'Euclidian', ...
+      'WindowCriterionTolerances', [-Inf 7], ...
+      'fusechanrej',         1);
     
     nChMiss = EEG.nbchan;
     [M, N] = size(EEG.data);
