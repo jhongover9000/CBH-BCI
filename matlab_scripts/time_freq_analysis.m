@@ -79,20 +79,35 @@ for sub_idx = 1:length(all_subs)
             EEG = pop_loadset(f_name, base_path);
             [nCh, nPnts, nTrials] = size(EEG.data);
             
-            % ----------------- CSD BLOCK (YOUR WORKING CODE) -----------------
-            ConvertLocations('locs.ced', 'locs.csd'); 
-            E = textread('E60.asc','%s'); 
-            M = ExtractMontage('locs.csd', E);
+            % CSD
+            % Create temporary locs file from THIS dataset's channels
+            temp_locs = 'temp_locs.ced';
+            writelocs(EEG.chanlocs, temp_locs, 'filetype', 'chanedit');
+            
+            % Create CSD-compatible files
+            temp_csd = 'temp_locs.csd';
+            ConvertLocations(temp_locs, temp_csd);
+            
+            % Extract labels directly from EEG.chanlocs to ensure matching order
+            % (We write/read a temp file because ExtractMontage is picky about format)
+            temp_lbl = 'temp_labels.txt';
+            fid = fopen(temp_lbl, 'w');
+            for i=1:nCh, fprintf(fid, '%s\n', EEG.chanlocs(i).labels); end
+            fclose(fid);
+            
+            chan_labels = textread(temp_lbl, '%s');
+            M = ExtractMontage(temp_csd, chan_labels);
             [G,H] = GetGH(M);
             
-            data_csd = single(repmat(NaN, size(EEG.data))); 
-            for ne = 1:nTrials
-                myEEG = single(EEG.data(:,:,ne));
-                MyResults = CSD(myEEG, G, H, 1.0e-5, 10);
-                data_csd(:,:,ne) = MyResults;
+            % Apply CSD
+            data_csd = zeros(size(EEG.data), 'single'); 
+            for tr = 1:nTrials
+                data_csd(:,:,tr) = CSD(single(EEG.data(:,:,tr)), G, H, 1.0e-5, 10);
             end
             EEG.data = double(data_csd);
-            % -----------------------------------------------------------------
+            
+            % Cleanup
+            delete(temp_locs); delete(temp_csd); delete(temp_lbl);
 
             % 2. WAVELET CONVOLUTION
             nWave = length(wavtime);

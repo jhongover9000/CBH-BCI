@@ -1,80 +1,99 @@
-%% STEP 2: Data-Driven ROI Selection (Memory Optimized)
+%% STEP 2: Data-Driven ROI Selection (Fully Data-Driven Version)
 %  - Loads High-Res TF Data
-%  - CROPS time window (to relevant MI period)
-%  - DOWNSAMPLES time (to reduce RAM usage for CBPT)
-%  - Runs CBPT to find ROI
+%  - CROPS time window
+%  - DOWNSAMPLES time
+%  - Runs CBPT (Cluster Based Permutation Testing)
+%  - DEFINES ROI based PURELY on statistical clusters (No manual cropping)
 
 clear; clc;
 load('./data_intermediate/TF_Data_CSD.mat'); % Loads tf_*, frex, times
 
-%% 1. DATA REDUCTION (CRITICAL FIX)
+%% 1. DATA REDUCTION
 fprintf('Reducing data resolution for Statistics...\n');
 
-% A. Define Time Window of Interest (e.g., -1s to 3s)
-% We don't need the tails (-5s or +5s) for the ROI check
-time_lims = [-1 3]; 
+% A. Define Time Window (Broad window to catch any effects)
+time_lims = [-0.5 2.5]; 
 t_idx_win = find(times >= time_lims(1) & times <= time_lims(2));
 
-% B. Define Downsampling Factor
-% Induced power is slow. 50Hz (20ms) resolution is plenty.
-% Current SR = 250Hz. Factor of 5 = 50Hz.
+% B. Downsample (50Hz resolution is sufficient for induced power)
 ds_factor = 5; 
-
-% Select indices: Inside window, stepping by ds_factor
 t_idx_use = t_idx_win(1:ds_factor:end);
 times_reduced = times(t_idx_use);
 
 fprintf('  Original Time Points: %d\n', length(times));
 fprintf('  Reduced Time Points:  %d\n', length(times_reduced));
 
-% C. Subset the Data [Sub x Freq x Time x Chan]
-% We overwrite the variables to clear RAM
-tf_Pre_MI   = tf_Pre_MI(:, :, t_idx_use, :);
-tf_Pre_Rest = tf_Pre_Rest(:, :, t_idx_use, :);
+% C. Apply to Data
+% Data format: [Subjects x Freqs x Times x Chans]
+data_MI   = tf_Pre_MI(:, :, t_idx_use, :);
+data_Rest = tf_Pre_Rest(:, :, t_idx_use, :);
 
-%% 2. PREPARE FOR STATCOND
-% Permute for statcond: [Freq x Time x Chan x Sub]
-data_MI   = permute(tf_Pre_MI,   [2, 3, 4, 1]); 
-data_Rest = permute(tf_Pre_Rest, [2, 3, 4, 1]);
+% D. Permute for statcond (needs [Freq x Time x Chan x Sub])
+data_MI   = permute(data_MI,   [2, 3, 4, 1]);
+data_Rest = permute(data_Rest, [2, 3, 4, 1]);
 
-% Clear originals to free memory immediately
-clear tf_Pre_MI tf_Pre_Rest;
+%% 2. RUN CLUSTER STATISTICS (CBPT)
+fprintf('Running Permutation Statistics (This may take time)...\n');
 
-%% 3. RUN CLUSTER PERMUTATION (MI vs Rest)
-fprintf('Running CBPT on Reduced Data (N=%d)...\n', size(data_MI, 4));
-
-% Note: 'naccu' determines p-value precision. 
-% If 1000 is still slow/heavy, try 500 for a quick check, but 1000 is standard.
+% Using 'statcond' from EEGLAB
+% 'cluster' = 'on' -> Returns corrected p-values for clusters
 [tvals, df, pvals, surrog] = statcond({data_MI, data_Rest}, ...
     'method', 'perm', ...
-    'naccu', 1000, ...      % Number of permutations
+    'naccu', 1000, ...      % 1000 permutations
     'paired', 'on', ...
-    'cluster', 'on', ...    % Enable cluster correction
+    'cluster', 'on', ...    % Cluster correction enabled
+    'alpha', 0.1, ...      % Significance level
     'verbose', 'on');
 
-% Create Logical Mask (p < 0.05)
-mask_raw = pvals < 0.05;
+%% 3. CREATE DATA-DRIVEN MASK
+% In a fully data-driven approach, we TRUST the cluster correction.
+% We do not crop by frequency or channel manually.
 
-%% 4. REFINE MASK
-% Use 'frex' (loaded from .mat)
-mu_idx   = find(frex >= 8 & frex <= 13);
-beta_idx = find(frex >= 13 & frex <= 30);
+mask_refined = pvals < 0.05;
 
-% Define Motor Channels (Update these indices based on your cap!)
-% E.g., if using 60 chans, roughly C3=14, C4=48, etc.
-% You must look at {chanlocs.labels} to be sure.
-motor_chans_idx = [12, 13, 14, 15, 16, 44, 45, 46, 47, 48]; % Approx Motor Area
-
-mask_refined = zeros(size(mask_raw));
-
-% Find t=0 in the REDUCED time vector
-t_zero_red = find(times_reduced >= 0, 1);
-
-% Keep Mu/Beta clusters in motor channels only
-mask_refined(mu_idx, t_zero_red:end, motor_chans_idx) = mask_raw(mu_idx, t_zero_red:end, motor_chans_idx);
-mask_refined(beta_idx, t_zero_red:end, motor_chans_idx) = mask_raw(beta_idx, t_zero_red:end, motor_chans_idx);
+% Check if we found anything
+n_sig_pixels = sum(mask_refined(:));
+fprintf('\n--- STATISTICS RESULTS ---\n');
+if n_sig_pixels == 0
+    warning('NO SIGNIFICANT CLUSTERS FOUND at p < 0.05.');
+    fprintf('  Try relaxing alpha in statcond to 0.1 to see trends.\n');
+    
+    % FALLBACK: To prevent crashes, define a dummy manual ROI
+    % (Standard Mu / Motor) just so variables exist.
+    fprintf('  -> Defaulting to Standard Mu/Motor ROI for compatibility.\n');
+    mu_idx = find(frex >= 8 & frex <= 13);
+    % Standard C3/C4 indices (Approximation, check your cap!)
+    motor_chans_idx = [12 13 45 46]; 
+else
+    fprintf('  FOUND Significant Cluster(s)! Total voxels: %d\n', n_sig_pixels);
+    
+    % 4. EXTRACT FEATURES FROM THE CLUSTER
+    % Instead of defining "Mu" and "Motor" manually, we ask:
+    % "What frequencies and channels are in this cluster?"
+    
+    % Find indices of all true pixels in the 3D mask [Freq, Time, Chan]
+    [f_ind, t_ind, ch_ind] = ind2sub(size(mask_refined), find(mask_refined));
+    
+    % Update the indices variables to match the DATA
+    mu_idx = unique(f_ind);          % The significant frequency bins
+    motor_chans_idx = unique(ch_ind);% The significant channels
+    
+    % Display what was found
+    found_freqs = frex(mu_idx);
+    fprintf('  Significant Freq Range: %.1f Hz - %.1f Hz\n', min(found_freqs), max(found_freqs));
+    fprintf('  Significant Channels:   %d found (Indices: %s)\n', length(motor_chans_idx), num2str(motor_chans_idx'));
+end
 
 %% 5. SAVE
-% IMPORTANT: We save 'times_reduced' so Step 3 knows the new time axis
-save('./data_intermediate/ROI_Mask.mat', 'mask_refined', 'motor_chans_idx', 'mu_idx', 'beta_idx', 'times_reduced');
-disp('Step 2 Complete: ROI Mask Generated (Memory Optimized).');
+% We save the mask AND the indices derived from it.
+% This ensures 'stat_test.m' extracts data from the *actual* active region.
+
+save('./data_intermediate/ROI_Mask.mat', ...
+    'mask_refined', ...
+    'mu_idx', ...           % Now represents the ACTIVE frequencies
+    'motor_chans_idx', ...  % Now represents the ACTIVE channels
+    'times_reduced', ...
+    'ds_factor', ...
+    't_idx_use');
+
+fprintf('ROI Mask saved. Ready for Step 3 (stat_test.m).\n');
