@@ -104,7 +104,7 @@ for sub_idx = 1:length(all_subs)
             for tr = 1:nTrials
                 data_csd(:,:,tr) = CSD(single(EEG.data(:,:,tr)), G, H, 1.0e-5, 10);
             end
-            EEG.data = single(data_csd);
+            EEG.data = double(data_csd);
             
             % Cleanup
             delete(temp_locs); delete(temp_csd); delete(temp_lbl);

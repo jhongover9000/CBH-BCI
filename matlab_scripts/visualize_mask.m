@@ -80,7 +80,7 @@ xline(0, '--k'); xline(1000, '--k', 'End of Motor Task');
 subplot(2, 2, 2);
 
 % Average across Active Frequencies (Mu/Beta) and Active Channels
-tc_data = squeeze(mean(mean(ERD_Reduced(active_freqs, :, active_chans), 1), 3)); 
+tc_data = squeeze(mean(mean(ERD_Reduced(:, :, active_chans), 1), 3)); 
 % Now [Subjects x Time]
 
 % Calculate Mean and Standard Error
